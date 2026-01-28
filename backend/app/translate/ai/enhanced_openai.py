@@ -314,3 +314,164 @@ class EnhancedAITranslator:
                 results.append(text)
 
         return results
+
+    async def _call_openai_api_async(self, text: str, target_lang: str, use_backup: bool = False) -> str:
+        """
+        异步调用 OpenAI API 进行翻译
+
+        Args:
+            text: 要翻译的文本
+            target_lang: 目标语言
+            use_backup: 是否使用备份模型
+
+        Returns:
+            str: 翻译结果
+        """
+        model = self.backup_model if use_backup else self.current_model
+        prompt = self._build_translation_prompt(text, target_lang)
+
+        try:
+            response = await self.async_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "你是一个专业的翻译助手。请准确翻译用户提供的文本，保持原文的意思和语气。"
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.3,
+                max_tokens=4000
+            )
+
+            content = response.choices[0].message.content.strip()
+
+            # 过滤 DeepSeek 思考过程
+            content = self._filter_deepseek_thought(content)
+
+            print(f"✅ 翻译成功（{model}）: {text[:30]}...")
+
+            return content
+
+        except Exception as e:
+            print(f"❌ API 调用失败（{model}）: {str(e)}")
+            raise
+
+    async def translate_text_async(self, text: str, target_lang: str) -> str:
+        """
+        异步翻译单个文本（带缓存、重试、备份模型）
+
+        Args:
+            text: 要翻译的文本
+            target_lang: 目标语言
+
+        Returns:
+            str: 翻译结果
+        """
+        if not text or not text.strip():
+            return text
+
+        # 1. 检查缓存
+        cached = self._check_cache(text, target_lang)
+        if cached:
+            return cached
+
+        # 2. 尝试翻译（带重试和备份模型）
+        max_retries = 3
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                # 先尝试主模型
+                content = await self._call_openai_api_async(text, target_lang, use_backup=False)
+
+                # 保存到缓存
+                self._save_cache(text, target_lang, content)
+
+                return content
+
+            except Exception as e:
+                last_error = str(e)
+                error_type = type(e).__name__
+
+                print(f"⚠️  第 {attempt + 1} 次尝试失败 ({error_type}): {last_error}")
+
+                # 如果是速率限制或认证错误，尝试备份模型
+                if error_type in ['RateLimitError', 'AuthenticationError', 'PermissionDeniedError']:
+                    if self.backup_model and self.current_model != self.backup_model:
+                        print(f"🔄 切换到备份模型: {self.backup_model}")
+                        self.current_model = self.backup_model
+
+                        # 等待1秒后重试
+                        await asyncio.sleep(1)
+
+                        # 使用备份模型重试
+                        content = await self._call_openai_api_async(text, target_lang, use_backup=True)
+
+                        # 保存到缓存
+                        self._save_cache(text, target_lang, content)
+
+                        # 恢复主模型
+                        self.current_model = self.model
+
+                        return content
+
+                # 最后一次尝试失败
+                if attempt == max_retries - 1:
+                    print(f"❌ 翻译最终失败，返回原文: {text[:30]}...")
+                    return text
+
+                # 等待5秒后重试
+                await asyncio.sleep(5)
+
+        return text
+
+    async def translate_batch_async_concurrent(
+        self,
+        texts: List[str],
+        target_lang: str,
+        max_concurrency: int = 5,
+        progress_callback: Optional[callable] = None
+    ) -> List[str]:
+        """
+        并发批量翻译，使用 Semaphore 控制并发数
+
+        Args:
+            texts: 要翻译的文本列表
+            target_lang: 目标语言
+            max_concurrency: 最大并发数
+            progress_callback: 进度回调函数
+
+        Returns:
+            List[str]: 翻译结果列表（保持原始顺序）
+        """
+        # 创建信号量控制并发数
+        semaphore = asyncio.Semaphore(max_concurrency)
+
+        async def translate_with_semaphore(text: str, index: int) -> tuple[int, str]:
+            """在信号量控制下进行翻译"""
+            async with semaphore:
+                result = await self.translate_text_async(text, target_lang)
+                if progress_callback:
+                    progress_callback(index + 1, len(texts))
+                return (index, result)
+
+        # 创建所有翻译任务
+        tasks = [
+            translate_with_semaphore(text, i)
+            for i, text in enumerate(texts)
+            if text and text.strip()
+        ]
+
+        # 并发执行所有任务
+        results = await asyncio.gather(*tasks)
+
+        # 按原始顺序返回结果
+        sorted_results = list(texts)
+        for index, result in results:
+            sorted_results[index] = result
+
+        return sorted_results

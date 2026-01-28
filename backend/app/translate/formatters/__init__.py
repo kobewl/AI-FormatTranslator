@@ -36,6 +36,30 @@ class BaseFormatter(ABC):
         """
         pass
 
+    @abstractmethod
+    async def translate_async(
+        self,
+        source_path: str,
+        target_lang: str,
+        ai_translator,
+        thread_count: int = 5,
+        progress_callback: Optional[Callable[[int, int], None]] = None
+    ) -> str:
+        """
+        异步执行翻译（支持并发）
+
+        Args:
+            source_path: 源文件路径
+            target_lang: 目标语言
+            ai_translator: AI 翻译器实例
+            thread_count: 并发线程数
+            progress_callback: 进度回调函数
+
+        Returns:
+            str: 翻译结果文件路径
+        """
+        pass
+
     def _save_result(self, content: str, output_path: str):
         """
         保存翻译结果

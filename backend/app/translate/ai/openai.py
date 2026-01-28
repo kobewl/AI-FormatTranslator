@@ -141,10 +141,7 @@ class AITranslator:
                 )
                 results.append(translated)
 
-                # 每次请求后添加延迟，避免触发限流
-                # 延迟时间随请求次数递增，确保不超过 API 限流
-                if i < len(texts) - 1:  # 最后一个请求不需要延迟
-                    time.sleep(1)  # 每次请求间隔 1 秒
+                # 已移除延迟以提高翻译速度
             else:
                 results.append(text)
 
@@ -271,6 +268,55 @@ class AITranslator:
         # 并发执行
         results = await asyncio.gather(*tasks)
         return results
+
+    async def translate_batch_async_concurrent(
+        self,
+        texts: List[str],
+        target_lang: str,
+        source_lang: str = "auto",
+        max_concurrency: int = 5,
+        progress_callback: Optional[callable] = None
+    ) -> List[str]:
+        """
+        并发批量翻译，使用 Semaphore 控制并发数
+
+        Args:
+            texts: 要翻译的文本列表
+            target_lang: 目标语言
+            source_lang: 源语言
+            max_concurrency: 最大并发数
+            progress_callback: 进度回调函数
+
+        Returns:
+            List[str]: 翻译结果列表（保持原始顺序）
+        """
+        # 创建信号量控制并发数
+        semaphore = asyncio.Semaphore(max_concurrency)
+
+        async def translate_with_semaphore(text: str, index: int) -> tuple[int, str]:
+            """在信号量控制下进行翻译"""
+            async with semaphore:
+                result = await self.translate_text_async(text, target_lang, source_lang)
+                if progress_callback:
+                    progress_callback(index + 1, len(texts))
+                return (index, result)
+
+        # 创建所有翻译任务
+        tasks = [
+            translate_with_semaphore(text, i)
+            for i, text in enumerate(texts)
+            if text and text.strip()
+        ]
+
+        # 并发执行所有任务
+        results = await asyncio.gather(*tasks)
+
+        # 按原始顺序返回结果
+        sorted_results = list(texts)
+        for index, result in results:
+            sorted_results[index] = result
+
+        return sorted_results
 
     def _build_translation_prompt(
         self,

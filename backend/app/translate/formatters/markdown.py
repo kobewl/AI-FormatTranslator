@@ -4,6 +4,7 @@ Markdown 文档格式处理器
 """
 import uuid
 import re
+import asyncio
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -27,12 +28,87 @@ class MarkdownFormatter(BaseFormatter):
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> str:
         """
-        翻译 Markdown 文档
+        翻译 Markdown 文档（同步包装器，调用异步方法）
 
         Args:
             source_path: 源文件路径
             target_lang: 目标语言
             ai_translator: AI 翻译器实例
+            progress_callback: 进度回调函数
+
+        Returns:
+            str: 翻译结果文件路径
+        """
+        # 检查翻译器是否支持并发方法
+        if hasattr(ai_translator, 'translate_batch_async_concurrent'):
+            # 获取线程数配置
+            thread_count = getattr(ai_translator, 'thread_count', 5)
+
+            # 创建新的事件循环并运行异步方法（不关闭循环，避免 AsyncOpenAI 客户端引用错误）
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(
+                    self.translate_async(source_path, target_lang, ai_translator, thread_count, progress_callback)
+                )
+            finally:
+                # 不关闭循环，让 asyncio 自动管理
+                asyncio.set_event_loop(None)
+        else:
+            # 使用原有同步逻辑
+            # 读取文件
+            with open(source_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # 解析 Markdown 为段落
+            paragraphs = self._parse_markdown(content)
+
+            # 翻译
+            translated_paragraphs = []
+            total = len(paragraphs)
+
+            for i, para in enumerate(paragraphs):
+                if para['text'].strip():
+                    # 翻译文本
+                    translated = ai_translator.translate_text(para['text'], target_lang)
+                    translated_paragraphs.append({
+                        'prefix': para['prefix'],
+                        'text': translated,
+                        'suffix': para['suffix']
+                    })
+                else:
+                    # 空行，保持原样
+                    translated_paragraphs.append(para)
+
+                if progress_callback:
+                    progress_callback(i + 1, total)
+
+            # 重建 Markdown
+            result_content = self._rebuild_markdown(translated_paragraphs)
+
+            # 保存结果
+            result_path = self._generate_result_path(source_path)
+            with open(result_path, 'w', encoding='utf-8') as f:
+                f.write(result_content)
+
+            return result_path
+
+    async def translate_async(
+        self,
+        source_path: str,
+        target_lang: str,
+        ai_translator,
+        thread_count: int = 5,
+        progress_callback: Optional[Callable[[int, int], None]] = None
+    ) -> str:
+        """
+        异步翻译 Markdown 文档（支持并发）
+
+        Args:
+            source_path: 源文件路径
+            target_lang: 目标语言
+            ai_translator: AI 翻译器实例
+            thread_count: 并发线程数
             progress_callback: 进度回调函数
 
         Returns:
@@ -45,25 +121,39 @@ class MarkdownFormatter(BaseFormatter):
         # 解析 Markdown 为段落
         paragraphs = self._parse_markdown(content)
 
-        # 翻译
-        translated_paragraphs = []
-        total = len(paragraphs)
+        # 收集需要翻译的段落
+        texts_to_translate = [para['text'] for para in paragraphs if para['text'].strip()]
 
-        for i, para in enumerate(paragraphs):
+        # 检查是否支持并发翻译
+        if hasattr(ai_translator, 'translate_batch_async_concurrent'):
+            # 使用并发翻译
+            translated_texts = await ai_translator.translate_batch_async_concurrent(
+                texts=texts_to_translate,
+                target_lang=target_lang,
+                max_concurrency=thread_count,
+                progress_callback=progress_callback
+            )
+        else:
+            # 降级到普通异步翻译
+            translated_texts = []
+            for text in texts_to_translate:
+                translated = await ai_translator.translate_text_async(text, target_lang)
+                translated_texts.append(translated)
+
+        # 重建翻译结果
+        translated_paragraphs = []
+        text_index = 0
+        for para in paragraphs:
             if para['text'].strip():
-                # 翻译文本
-                translated = ai_translator.translate_text(para['text'], target_lang)
                 translated_paragraphs.append({
                     'prefix': para['prefix'],
-                    'text': translated,
+                    'text': translated_texts[text_index],
                     'suffix': para['suffix']
                 })
+                text_index += 1
             else:
                 # 空行，保持原样
                 translated_paragraphs.append(para)
-
-            if progress_callback:
-                progress_callback(i + 1, total)
 
         # 重建 Markdown
         result_content = self._rebuild_markdown(translated_paragraphs)

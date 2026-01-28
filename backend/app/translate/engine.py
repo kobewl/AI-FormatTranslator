@@ -85,6 +85,9 @@ class TranslateEngine:
             timeout=settings.OPENAI_TIMEOUT
         )
 
+        # 传递线程数配置给翻译器
+        self.ai_translator.thread_count = self.task.thread_count
+
     def execute(self):
         """
         执行翻译任务（同步方式）
