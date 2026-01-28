@@ -1,0 +1,157 @@
+# ============================================
+# FormatTranslator AI - 项目根目录 .gitignore
+# ============================================
+
+# -------------------
+# Claude Code 相关
+# -------------------
+.claude/
+*.jsonl
+.claude-*
+
+# -------------------
+# VSCode 相关
+# -------------------
+.vscode/
+*.code-workspace
+
+# -------------------
+# JetBrains IDE (PyCharm/IntelliJ/WebStorm)
+# -------------------
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# -------------------
+# macOS 系统文件
+# -------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# -------------------
+# Windows 系统文件
+# -------------------
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# -------------------
+# Linux 系统文件
+# -------------------
+*~
+.nfs*
+.directory
+
+# -------------------
+# 环境配置文件
+# -------------------
+.env
+.env.local
+.env.*.local
+*.env
+
+# -------------------
+# 日志文件
+# -------------------
+*.log
+logs/
+LOG/
+
+# -------------------
+# 临时文件
+# -------------------
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~.nib
+*.pid
+
+# -------------------
+# 测试和覆盖率
+# -------------------
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# -------------------
+# 构建产物
+# -------------------
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# -------------------
+# 数据库文件
+# -------------------
+*.db
+*.sqlite
+*.sqlite3
+*.sql.gz
+*.sql.zip
+
+# -------------------
+# 存储和上传文件
+# -------------------
+storage/uploads/*
+storage/translate/*
+!storage/uploads/.gitkeep
+!storage/translate/.gitkeep
+
+# -------------------
+# Node.js (前端)
+# -------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# -------------------
+# Python (后端)
+# -------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+*.egg
+*.egg-info/
+.pytest_cache/
+
+# -------------------
+# 其他
+# -------------------
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
