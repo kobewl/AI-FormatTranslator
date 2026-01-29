@@ -245,9 +245,10 @@ async def download_translate_result(
             detail="翻译结果文件不存在"
         )
 
-    # 生成下载文件名
-    original_name, ext = os.path.splitext(translate.file_name)
-    download_filename = f"{original_name}_translated{ext}"
+    # 生成下载文件名（使用实际结果文件的扩展名）
+    original_name, _ = os.path.splitext(translate.file_name)
+    result_ext = os.path.splitext(translate.result_file_path)[1]
+    download_filename = f"{original_name}_translated{result_ext}"
 
     return FileResponse(
         path=translate.result_file_path,

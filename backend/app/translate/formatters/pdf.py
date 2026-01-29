@@ -1,117 +1,71 @@
 """
 PDF 文档格式处理器
-支持 .pdf 文件的翻译，保持原始格式
+使用 PDF → Word → 翻译 的方案，保持格式
 """
 import uuid
 import asyncio
+import os
+import shutil
 from pathlib import Path
-from typing import Callable, Optional, List, Dict, Tuple
-from copy import deepcopy
+from typing import Callable, Optional
 
 from . import BaseFormatter
+from .word import WordFormatter
 from ...config import settings
 
-# 尝试导入 PyMuPDF
+# 尝试导入 pdf2docx
 try:
-    import fitz  # PyMuPDF
-    PYMUPDF_AVAILABLE = True
+    from pdf2docx import Converter
+    PDF2DOCX_AVAILABLE = True
 except ImportError:
-    PYMUPDF_AVAILABLE = False
+    PDF2DOCX_AVAILABLE = False
 
 
 class PDFFormatter(BaseFormatter):
     """
     PDF 文档处理器
 
-    使用 PyMuPDF (fitz) 在原始 PDF 上替换文本，尽量保持原有格式
+    使用 pdf2docx 将 PDF 转换为 Word，然后翻译 Word 文档
+    返回翻译后的 Word 文件（.docx 格式）
+
+    这个方案的优点：
+    - Word 格式会自动调整文本布局，不会错位
+    - 表格结构保持良好
+    - 用户可以手动调整格式
     """
 
-    def _extract_text_blocks(self, page) -> List[Dict]:
+    def _pdf_to_word(self, pdf_path: str, word_path: str) -> str:
         """
-        提取页面中的文本块及其位置信息
+        将 PDF 转换为 Word
 
         Args:
-            page: PyMuPDF 页面对象
+            pdf_path: PDF 文件路径
+            word_path: 输出 Word 文件路径
 
         Returns:
-            List[Dict]: 文本块列表，包含文本内容和位置信息
+            str: Word 文件路径
         """
-        blocks = page.get_text("dict")["blocks"]
-        text_blocks = []
+        if not PDF2DOCX_AVAILABLE:
+            raise ImportError(
+                "PDF 转 Word 需要安装 pdf2docx: pip install pdf2docx"
+            )
 
-        for block in blocks:
-            if "lines" in block:  # 文本块
-                for line in block["lines"]:
-                    for span in line["spans"]:
-                        text = span["text"]
-                        if text.strip():  # 只处理非空文本
-                            text_blocks.append({
-                                "text": text,
-                                "bbox": span["bbox"],  # (x0, y0, x1, y1)
-                                "font": span["font"],
-                                "size": span["size"],
-                                "flags": span["flags"],
-                                "color": span["color"]
-                            })
+        print(f"📄 开始转换 PDF → Word...")
+        print(f"📥 输入: {pdf_path}")
+        print(f"📤 输出: {word_path}")
 
-        return text_blocks
+        # 创建转换器
+        cv = Converter(pdf_path)
 
-    def _replace_text_on_page(self, page, text_blocks: List[Dict], translations: List[str]):
-        """
-        在页面上替换文本
+        try:
+            # 转换 PDF 到 Word
+            # multi_processing=True 启用多进程加速（默认已开启）
+            cv.convert(word_path)
+            print(f"✅ 转换完成")
+        finally:
+            cv.close()
 
-        Args:
-            page: PyMuPDF 页面对象
-            text_blocks: 原始文本块列表
-            translations: 翻译后的文本列表
-        """
-        print(f"🔄 开始替换页面上的 {len(text_blocks)} 个文本块")
-
-        # 先使用红色遮罩标记要删除的文本区域
-        for block in text_blocks:
-            rect = fitz.Rect(block["bbox"])
-            # 添加红色遮罩注释来标记要删除的区域
-            page.add_redact_annot(rect, fill=(1, 1, 1))  # 白色填充
-
-        # 应用红色遮罩，这会真正删除被遮罩区域的内容
-        page.apply_redactions()
-        print(f"✅ 已清除原始文本")
-
-        # 插入翻译后的文本
-        success_count = 0
-        for i, (block, translated_text) in enumerate(zip(text_blocks, translations)):
-            bbox = block["bbox"]
-            x0, y0, x1, y1 = bbox
-
-            # 计算文本框的宽度和高度
-            rect = fitz.Rect(x0, y0, x1, y1 + (y1 - y0) * 0.5)  # 增加高度以容纳可能的较长文本
-
-            try:
-                # 使用 insert_textbox 插入文本（支持自动换行和缩放）
-                page.insert_textbox(
-                    rect,
-                    translated_text,
-                    fontsize=block["size"] * 0.9,  # 稍微缩小字体以避免溢出
-                    fontname="china-s",  # 使用支持中文的字体
-                    color=block["color"]
-                )
-                success_count += 1
-            except Exception as e:
-                # 如果 insert_textbox 失败，使用简单的 insert_text
-                try:
-                    page.insert_text(
-                        fitz.Point(x0, y1),
-                        translated_text,
-                        fontsize=block["size"] * 0.8,
-                        fontname="china-s",
-                        color=block["color"]
-                    )
-                    success_count += 1
-                except:
-                    # 如果仍然失败，跳过此文本块
-                    print(f"⚠️ 文本插入失败: {repr(translated_text[:30])}")
-
-        print(f"✅ 成功插入 {success_count}/{len(text_blocks)} 个翻译文本")
+        return word_path
 
     def translate(
         self,
@@ -122,6 +76,17 @@ class PDFFormatter(BaseFormatter):
     ) -> str:
         """
         翻译 PDF 文档（同步包装器，调用异步方法）
+
+        流程：PDF → Word → 翻译 → 返回 Word 文件
+
+        Args:
+            source_path: 源 PDF 文件路径
+            target_lang: 目标语言
+            ai_translator: AI 翻译器实例
+            progress_callback: 进度回调函数
+
+        Returns:
+            str: 翻译结果 Word 文件路径
         """
         # 检查翻译器是否支持并发方法
         if hasattr(ai_translator, 'translate_batch_async_concurrent'):
@@ -140,65 +105,75 @@ class PDFFormatter(BaseFormatter):
                 asyncio.set_event_loop(None)
         else:
             # 使用原有同步逻辑
-            try:
-                import fitz  # PyMuPDF
-            except ImportError:
-                raise ImportError(
-                    "PDF 处理需要安装 PyMuPDF: pip install PyMuPDF"
-                )
+            return self._translate_sync(source_path, target_lang, ai_translator, progress_callback)
 
-            # 打开原始 PDF
-            doc = fitz.open(source_path)
+    def _translate_sync(
+        self,
+        source_path: str,
+        target_lang: str,
+        ai_translator,
+        progress_callback: Optional[Callable[[int, int], None]] = None
+    ) -> str:
+        """
+        同步翻译 PDF 文档
 
-            # 收集所有需要翻译的文本块
-            all_text_blocks = []
-            page_text_blocks = []
+        Args:
+            source_path: 源 PDF 文件路径
+            target_lang: 目标语言
+            ai_translator: AI 翻译器实例
+            progress_callback: 进度回调函数
 
-            for page_num, page in enumerate(doc):
-                text_blocks = self._extract_text_blocks(page)
-                page_text_blocks.append(text_blocks)
-                all_text_blocks.extend([block["text"] for block in text_blocks])
+        Returns:
+            str: 翻译结果 Word 文件路径
+        """
+        print(f"🚀 启动 PDF 翻译（通过 Word 格式）")
 
-            total_count = len(all_text_blocks)
+        # 创建临时工作目录
+        work_dir = settings.TRANSLATE_DIR / f"pdf2word_{uuid.uuid4().hex[:8]}"
+        work_dir.mkdir(parents=True, exist_ok=True)
 
-            print(f"📄 PDF 翻译：共提取 {total_count} 个文本块")
-            if total_count > 0:
-                print(f"📝 第一个文本块: {repr(all_text_blocks[0][:50])}")
+        try:
+            # 第一步：PDF → Word
+            print(f"\n📖 步骤 1/2: PDF 转 Word...")
+            pdf_source = Path(source_path)
+            word_temp_path = work_dir / f"{pdf_source.stem}.docx"
 
-            # 翻译所有文本
-            translated_texts = []
-            batch_size = 20
+            self._pdf_to_word(source_path, str(word_temp_path))
 
-            for i in range(0, total_count, batch_size):
-                batch = all_text_blocks[i:i + batch_size]
-                translated_batch = ai_translator.translate_batch(batch, target_lang)
-                translated_texts.extend(translated_batch)
+            # 第二步：翻译 Word 文档
+            print(f"\n🌐 步骤 2/2: 翻译 Word 文档...")
 
-                if progress_callback:
-                    progress_callback(min(i + batch_size, total_count), total_count)
+            # 使用 WordFormatter 翻译
+            word_formatter = WordFormatter()
+            translated_word_path = word_formatter._translate_sync(
+                str(word_temp_path),
+                target_lang,
+                ai_translator,
+                progress_callback
+            )
 
-            if total_count > 0:
-                print(f"✅ 翻译完成，第一个翻译结果: {repr(translated_texts[0][:50])}")
+            # WordFormatter 已经将文件保存到最终位置了
+            # 直接返回该路径
+            result_path = translated_word_path
 
-            # 在原始 PDF 上替换文本
-            text_index = 0
-            for page_num, page in enumerate(doc):
-                text_blocks = page_text_blocks[page_num]
-                page_translations = []
+            print(f"✅ 翻译完成！")
+            print(f"📁 结果文件: {result_path}")
 
-                for block in text_blocks:
-                    if text_index < len(translated_texts):
-                        page_translations.append(translated_texts[text_index])
-                        text_index += 1
-
-                self._replace_text_on_page(page, text_blocks, page_translations)
-
-            # 保存结果
-            result_path = self._generate_result_path(source_path, ext='.pdf')
-            doc.save(result_path)
-            doc.close()
+            # 清理临时目录
+            shutil.rmtree(work_dir)
 
             return result_path
+
+        except Exception as e:
+            print(f"❌ PDF 翻译失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+            # 清理临时目录
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+
+            raise
 
     async def translate_async(
         self,
@@ -209,89 +184,69 @@ class PDFFormatter(BaseFormatter):
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> str:
         """
-        异步翻译 PDF 文档（支持并发）
+        异步翻译 PDF 文档
 
         Args:
-            source_path: 源文件路径
+            source_path: 源 PDF 文件路径
             target_lang: 目标语言
             ai_translator: AI 翻译器实例
             thread_count: 并发线程数
             progress_callback: 进度回调函数
 
         Returns:
-            str: 翻译结果文件路径
+            str: 翻译结果 Word 文件路径
         """
+        print(f"🚀 启动 PDF 翻译（异步，通过 Word 格式）")
+
+        # 创建临时工作目录
+        work_dir = settings.TRANSLATE_DIR / f"pdf2word_{uuid.uuid4().hex[:8]}"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
         try:
-            import fitz  # PyMuPDF
-        except ImportError:
-            raise ImportError(
-                "PDF 处理需要安装 PyMuPDF: pip install PyMuPDF"
+            # 第一步：PDF → Word（同步操作，在线程池中运行）
+            print(f"\n📖 步骤 1/2: PDF 转 Word...")
+            pdf_source = Path(source_path)
+            word_temp_path = work_dir / f"{pdf_source.stem}.docx"
+
+            # 在线程池中运行 PDF → Word 转换
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: self._pdf_to_word(source_path, str(word_temp_path))
             )
 
-        # 打开原始 PDF
-        doc = fitz.open(source_path)
+            # 第二步：翻译 Word 文档（异步）
+            print(f"\n🌐 步骤 2/2: 翻译 Word 文档...")
 
-        # 收集所有需要翻译的文本块
-        all_text_blocks = []
-        page_text_blocks = []
-
-        for page_num, page in enumerate(doc):
-            text_blocks = self._extract_text_blocks(page)
-            page_text_blocks.append(text_blocks)
-            all_text_blocks.extend([block["text"] for block in text_blocks])
-
-        total_count = len(all_text_blocks)
-
-        print(f"📄 PDF 翻译（异步）：共提取 {total_count} 个文本块")
-        if total_count > 0:
-            print(f"📝 第一个文本块: {repr(all_text_blocks[0][:50])}")
-
-        # 检查是否支持并发翻译
-        if hasattr(ai_translator, 'translate_batch_async_concurrent'):
-            # 使用并发翻译
-            translated_texts = await ai_translator.translate_batch_async_concurrent(
-                texts=all_text_blocks,
-                target_lang=target_lang,
-                max_concurrency=thread_count,
-                progress_callback=progress_callback
+            # 使用 WordFormatter 翻译
+            word_formatter = WordFormatter()
+            translated_word_path = await word_formatter.translate_async(
+                str(word_temp_path),
+                target_lang,
+                ai_translator,
+                thread_count,
+                progress_callback
             )
-        else:
-            # 降级到普通异步翻译
-            translated_texts = []
-            for i, text in enumerate(all_text_blocks):
-                translated = await ai_translator.translate_text_async(text, target_lang)
-                translated_texts.append(translated)
 
-                if progress_callback:
-                    progress_callback(i + 1, total_count)
+            # WordFormatter 已经将文件保存到最终位置了
+            # 直接返回该路径
+            result_path = translated_word_path
 
-        if total_count > 0:
-            print(f"✅ 翻译完成，第一个翻译结果: {repr(translated_texts[0][:50])}")
+            print(f"✅ 翻译完成！")
+            print(f"📁 结果文件: {result_path}")
 
-        # 在原始 PDF 上替换文本
-        text_index = 0
-        for page_num, page in enumerate(doc):
-            text_blocks = page_text_blocks[page_num]
-            page_translations = []
+            # 清理临时目录
+            shutil.rmtree(work_dir)
 
-            for block in text_blocks:
-                if text_index < len(translated_texts):
-                    page_translations.append(translated_texts[text_index])
-                    text_index += 1
+            return result_path
 
-            self._replace_text_on_page(page, text_blocks, page_translations)
+        except Exception as e:
+            print(f"❌ PDF 翻译失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
-        # 保存结果
-        result_path = self._generate_result_path(source_path, ext='.pdf')
-        doc.save(result_path)
-        doc.close()
+            # 清理临时目录
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
 
-        return result_path
-
-    def _generate_result_path(self, source_path: str, ext: str = None) -> str:
-        """生成结果文件路径"""
-        source = Path(source_path)
-        if ext is None:
-            ext = source.suffix
-        filename = f"{source.stem}_translated_{uuid.uuid4().hex[:8]}{ext}"
-        return str(settings.TRANSLATE_DIR / filename)
+            raise

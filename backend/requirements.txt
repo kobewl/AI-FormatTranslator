@@ -31,6 +31,7 @@ python-docx==1.1.0
 openpyxl==3.1.2
 python-pptx==0.6.23
 pymupdf==1.23.8  # PyMuPDF - PDF 处理库
+pdf2docx>=0.5.8  # PDF 转 Word 库
 
 # AI 翻译
 openai==1.6.1
