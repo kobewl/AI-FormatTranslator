@@ -71,6 +71,17 @@ async def start_translate(
         translate.mark_as_started()
         db.commit()
 
+        # 同时更新 Redis 状态
+        from ...utils.redis_client import RedisClient
+        RedisClient.set_translate_progress(translate.id, {
+            "task_id": translate.id,
+            "status": "processing",
+            "progress": 0,
+            "total_segments": 0,
+            "translated_segments": 0,
+            "error_message": None
+        })
+
         # 创建翻译引擎并执行（异步）
         engine = TranslateEngine(translate.id, db)
         # 在实际应用中，这里应该使用 Celery 或后台任务
@@ -183,6 +194,20 @@ async def get_translate_progress(
     - **task_id**: 任务ID
     """
 
+    # 首先尝试从 Redis 获取进度（实时数据）
+    from ...utils.redis_client import RedisClient
+
+    progress_data = RedisClient.get_translate_progress(task_id)
+
+    if progress_data:
+        # 从 Redis 获取到了数据
+        return ResponseModel(
+            success=True,
+            message="获取成功",
+            data=progress_data
+        )
+
+    # Redis 中没有数据，从数据库查询（备用方案）
     translate = db.query(Translate).filter(
         Translate.id == task_id,
         Translate.customer_id == current_user.id
@@ -248,12 +273,28 @@ async def download_translate_result(
     # 生成下载文件名（使用实际结果文件的扩展名）
     original_name, _ = os.path.splitext(translate.file_name)
     result_ext = os.path.splitext(translate.result_file_path)[1]
-    download_filename = f"{original_name}_translated{result_ext}"
 
-    return FileResponse(
-        path=translate.result_file_path,
-        filename=download_filename,
-        media_type="application/octet-stream"
+    # 使用目标语言代码生成文件名：原文件名_语言代码.扩展名
+    target_lang = translate.target_lang if translate.target_lang else "en"
+    download_filename = f"{original_name}_{target_lang}{result_ext}"
+
+    # 读取文件内容
+    with open(translate.result_file_path, 'rb') as f:
+        content = f.read()
+
+    # URL 编码文件名
+    from urllib.parse import quote
+    filename_encoded = quote(download_filename.encode('utf-8'))
+
+    # 使用 Response 而不是 FileResponse，手动设置所有头
+    from fastapi.responses import Response
+
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{filename_encoded}"
+        }
     )
 
 

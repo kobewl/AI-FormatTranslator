@@ -324,15 +324,35 @@ const startProgressPolling = () => {
     clearInterval(progressTimer)
   }
 
+  // 立即查询一次进度
+  setTimeout(async () => {
+    if (currentTask.value) {
+      const progress = await translateStore.fetchProgress(currentTask.value.id)
+      if (progress) {
+        // 直接更新属性，确保 Vue 的响应式系统能检测到变化
+        currentTask.value.status = progress.status
+        currentTask.value.progress = progress.progress
+        currentTask.value.translated_segments = progress.translated_segments
+        currentTask.value.total_segments = progress.total_segments
+        currentTask.value.error_message = progress.error_message
+        console.log('进度更新:', progress.status, progress.progress + '%')
+      }
+    }
+  }, 500) // 0.5秒后第一次查询
+
+  // 然后每1秒轮询一次
   progressTimer = setInterval(async () => {
     if (!currentTask.value) return
 
     const progress = await translateStore.fetchProgress(currentTask.value.id)
     if (progress) {
-      currentTask.value = {
-        ...currentTask.value,
-        ...progress
-      }
+      // 直接更新属性，确保 Vue 的响应式系统能检测到变化
+      currentTask.value.status = progress.status
+      currentTask.value.progress = progress.progress
+      currentTask.value.translated_segments = progress.translated_segments
+      currentTask.value.total_segments = progress.total_segments
+      currentTask.value.error_message = progress.error_message
+      console.log('进度更新:', progress.status, progress.progress + '%')
 
       // 如果完成或失败，停止轮询
       if (progress.status === 'completed' || progress.status === 'failed') {
@@ -341,7 +361,7 @@ const startProgressPolling = () => {
         fetchRecentTasks()
       }
     }
-  }, 2000)
+  }, 1000)
 }
 
 // 停止轮询

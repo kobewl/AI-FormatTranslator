@@ -104,7 +104,9 @@ class WordFormatter(BaseFormatter):
         # 总文本数
         total_count = len(texts)
         if total_count == 0:
-            return self._generate_result_path(source_path)
+            return self._generate_result_path(source_path, target_lang)
+
+        print(f"📊 文档包含 {total_count} 个文本段落，开始翻译...")
 
         # 第二步：批量翻译
         batch_size = 10  # 每批翻译的文本数
@@ -126,9 +128,11 @@ class WordFormatter(BaseFormatter):
                 else:
                     item['translated'] = item['text']
 
-            # 更新进度
+            # 更新进度（每批完成后）
             if progress_callback:
-                progress_callback(min(i + batch_size, total_count), total_count)
+                current_completed = min(i + batch_size, total_count)
+                progress_callback(current_completed, total_count)
+                print(f"📊 批次 {i // batch_size + 1} 完成，进度: {int(current_completed / total_count * 100)}%")
 
         # 第三步：将翻译结果写回原文档
         index = 0
@@ -149,8 +153,11 @@ class WordFormatter(BaseFormatter):
                     for paragraph in cell.paragraphs:
                         index = self._write_runs(paragraph.runs, texts, index)
 
+        # 设置中文字体，确保中文能正确显示
+        self._set_chinese_font(doc, target_lang)
+
         # 保存结果（覆盖原文档）
-        result_path = self._generate_result_path(source_path)
+        result_path = self._generate_result_path(source_path, target_lang)
         doc.save(result_path)
 
         return result_path
@@ -201,7 +208,9 @@ class WordFormatter(BaseFormatter):
         # 总文本数
         total_count = len(texts)
         if total_count == 0:
-            return self._generate_result_path(source_path)
+            return self._generate_result_path(source_path, target_lang)
+
+        print(f"📊 文档包含 {total_count} 个文本段落，开始异步翻译（{thread_count} 线程）...")
 
         # 第二步：异步批量翻译（并发模式）
         batch_size = 20  # 并发模式下可以增大批次
@@ -213,12 +222,19 @@ class WordFormatter(BaseFormatter):
                 batch = texts[i:i + batch_size]
                 batch_texts = [item['text'] for item in batch]
 
+                # 创建一个包装的进度回调，将批次内的索引转换为全局索引
+                def batch_progress_callback(batch_current: int, batch_total: int):
+                    if progress_callback:
+                        # 计算全局进度：当前批次起始位置 + 批次内进度
+                        global_current = i + batch_current
+                        progress_callback(global_current, total_count)
+
                 # 调用异步并发翻译
                 translated_batch = await ai_translator.translate_batch_async_concurrent(
                     texts=batch_texts,
                     target_lang=target_lang,
                     max_concurrency=thread_count,
-                    progress_callback=progress_callback
+                    progress_callback=batch_progress_callback
                 )
 
                 # 将翻译结果写回 texts 数组
@@ -269,8 +285,11 @@ class WordFormatter(BaseFormatter):
                     for paragraph in cell.paragraphs:
                         index = self._write_runs(paragraph.runs, texts, index)
 
+        # 设置中文字体，确保中文能正确显示
+        self._set_chinese_font(doc, target_lang)
+
         # 保存结果（覆盖原文档）
-        result_path = self._generate_result_path(source_path)
+        result_path = self._generate_result_path(source_path, target_lang)
         doc.save(result_path)
 
         return result_path
@@ -315,17 +334,71 @@ class WordFormatter(BaseFormatter):
                     index += 1
         return index
 
-    def _generate_result_path(self, source_path: str) -> str:
+    def _set_chinese_font(self, doc, target_lang: str):
+        """
+        设置文档的中文字体，确保中文能正确显示
+
+        Args:
+            doc: python-docx 文档对象
+            target_lang: 目标语言代码
+        """
+        # 为所有段落设置中文字体
+        for paragraph in doc.paragraphs:
+            for run in paragraph.runs:
+                try:
+                    # 检查 run 是否有 rPr 属性
+                    if run._element.rPr is not None:
+                        # 获取或创建 rFonts 元素
+                        rfonts = run._element.rPr.find(qn('w:rFonts'))
+                        if rfonts is None:
+                            rfonts = run._element.rPr.makeelement(qn('w:rFonts'))
+                            run._element.rPr.append(rfonts)
+
+                        # 设置东亚字体（中日韩字符）
+                        if target_lang == 'zh':
+                            rfonts.set(qn('w:eastAsia'), '微软雅黑')
+                            rfonts.set(qn('w:ascii'), '微软雅黑')
+                            rfonts.set(qn('w:hAnsi'), '微软雅黑')
+                        else:
+                            rfonts.set(qn('w:eastAsia'), 'Arial')
+                except Exception as e:
+                    # 如果设置失败，跳过该 run
+                    pass
+
+        # 为表格中的文本设置字体
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            try:
+                                if run._element.rPr is not None:
+                                    rfonts = run._element.rPr.find(qn('w:rFonts'))
+                                    if rfonts is None:
+                                        rfonts = run._element.rPr.makeelement(qn('w:rFonts'))
+                                        run._element.rPr.append(rfonts)
+
+                                    if target_lang == 'zh':
+                                        rfonts.set(qn('w:eastAsia'), '微软雅黑')
+                                        rfonts.set(qn('w:ascii'), '微软雅黑')
+                                        rfonts.set(qn('w:hAnsi'), '微软雅黑')
+                                    else:
+                                        rfonts.set(qn('w:eastAsia'), 'Arial')
+                            except Exception:
+                                pass
+
+    def _generate_result_path(self, source_path: str, target_lang: str = "en") -> str:
         """
         生成结果文件路径
 
         Args:
             source_path: 源文件路径
+            target_lang: 目标语言代码（如 en, zh 等）
 
         Returns:
             str: 结果文件路径
         """
         source = Path(source_path)
-        # 使用源文件的文件名，但保存到 translate 目录
-        filename = f"{source.stem}_translated{source.suffix}"
+        # 使用源文件的文件名 + 语言代码
+        filename = f"{source.stem}_{target_lang}{source.suffix}"
         return str(settings.TRANSLATE_DIR / filename)

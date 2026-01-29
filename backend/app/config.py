@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     ALLOWED_EMAIL_DOMAINS: Union[str, List[str]] = "qq.com,163.com,126.com"
 
     # Redis 配置（可选）
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
     REDIS_URL: Optional[str] = None
 
     # 分页配置

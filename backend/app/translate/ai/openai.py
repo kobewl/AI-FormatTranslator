@@ -360,10 +360,16 @@ class AITranslator:
 
         return prompt
 
+    async def close_async(self):
+        """关闭异步客户端"""
+        try:
+            await self.async_client.close()
+        except:
+            pass
+
     def __del__(self):
         """清理资源"""
         try:
             self.client.close()
-            asyncio.get_event_loop().run_until_complete(self.async_client.close())
         except:
             pass

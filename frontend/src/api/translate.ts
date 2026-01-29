@@ -79,13 +79,29 @@ export const downloadTranslateResult = async (id: number) => {
   // 从响应头中获取文件名
   const contentDisposition = response.headers?.['content-disposition'] || ''
   let filename = `translated_${id}.docx`
-  const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
-  if (match && match[1]) {
-    filename = match[1].replace(/['"]/g, '')
+
+  console.log('Content-Disposition:', contentDisposition)
+
+  // 解析 filename*=UTF-8'' 格式
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;\s]+)/)
+  if (utf8Match && utf8Match[1]) {
+    // URL 解码
+    filename = decodeURIComponent(utf8Match[1])
+    console.log('解析后的文件名 (UTF-8):', filename)
+  } else {
+    // 尝试解析 filename= 格式
+    const normalMatch = contentDisposition.match(/filename=([^;\s]+)/)
+    if (normalMatch && normalMatch[1]) {
+      // 去除引号
+      filename = normalMatch[1].replace(/['"]/g, '')
+      console.log('解析后的文件名 (普通):', filename)
+    }
   }
 
+  console.log('最终文件名:', filename)
+
   // 创建下载链接
-  const blob = new Blob([response.data])  // 修复：使用 response.data 而不是 response
+  const blob = new Blob([response.data])
   const url = window.URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
