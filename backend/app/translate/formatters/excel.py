@@ -184,3 +184,79 @@ class ExcelFormatter(BaseFormatter):
         source = Path(source_path)
         filename = f"{source.stem}_translated_{uuid.uuid4().hex[:8]}{source.suffix}"
         return str(settings.TRANSLATE_DIR / filename)
+
+    def extract_content(self, file_path: str, max_chars: int = 5000) -> dict:
+        """
+        提取 Excel 文件内容用于预览
+
+        Args:
+            file_path: 文件路径
+            max_chars: 最大提取字符数
+
+        Returns:
+            dict: 包含 content 列表、total_chars、truncated、format
+        """
+        try:
+            from openpyxl import load_workbook
+
+            wb = load_workbook(file_path, data_only=True)
+
+            content_list = []
+            total_chars = 0
+            truncated = False
+            total_cells = 0
+
+            for sheet_idx, sheet in enumerate(wb.worksheets):
+                for row_idx, row in enumerate(sheet.iter_rows()):
+                    for cell in row:
+                        if cell.value and isinstance(cell.value, str) and cell.value.strip():
+                            total_cells += 1
+                            text = cell.value.strip()
+
+                            # 跳过公式
+                            if text.startswith('='):
+                                continue
+
+                            if total_chars + len(text) > max_chars:
+                                remaining = max_chars - total_chars
+                                if remaining > 0:
+                                    content_list.append({
+                                        'type': 'cell',
+                                        'text': text[:remaining],
+                                        'index': total_cells,
+                                        'location': f"{sheet.title} - 行{row_idx+1}"
+                                    })
+                                truncated = True
+                                break
+
+                            content_list.append({
+                                'type': 'cell',
+                                'text': text,
+                                'index': total_cells,
+                                'location': f"{sheet.title} - 行{row_idx+1}"
+                            })
+                            total_chars += len(text)
+
+                    if truncated:
+                        break
+                if truncated:
+                    break
+
+            wb.close()
+
+            return {
+                'content': content_list,
+                'total_chars': total_chars,
+                'truncated': truncated,
+                'format': 'xlsx',
+                'total_sheets': len(wb.worksheets),
+                'total_cells': total_cells
+            }
+        except Exception as e:
+            return {
+                'content': [],
+                'total_chars': 0,
+                'truncated': False,
+                'format': 'xlsx',
+                'error': str(e)
+            }

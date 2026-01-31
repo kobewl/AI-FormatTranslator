@@ -122,3 +122,31 @@ export const downloadTranslateResult = async (id: number) => {
 export const deleteTranslate = (id: number) => {
   return http.delete<any>(`/translate/${id}`)
 }
+
+/**
+ * 重试翻译任务
+ * 基于已完成的任务创建新的翻译任务，使用相同的文件但允许修改翻译参数
+ */
+export const retryTranslate = (taskId: number, data: TranslateRequest) => {
+  return http.post<any>(`/translate/retry?task_id=${taskId}`, data)
+}
+
+/**
+ * 获取翻译任务的源文件预览
+ * 支持 docx/pdf/xlsx/pptx/md/txt 格式
+ */
+export const getTranslatePreview = (id: number, maxChars?: number) => {
+  return http.get<any>(`/translate/${id}/preview`, {
+    params: { max_chars: maxChars || 5000 }
+  })
+}
+
+/**
+ * 获取翻译任务的对照预览（原文+译文）
+ * 同时提取源文件和翻译结果文件的内容
+ */
+export const getTranslateParallelPreview = (id: number, maxChars?: number) => {
+  return http.get<any>(`/translate/${id}/preview-parallel`, {
+    params: { max_chars: maxChars || 5000 }
+  })
+}

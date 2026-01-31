@@ -155,3 +155,4 @@ ENV/
 !.yarn/plugins
 !.yarn/releases
 !.yarn/sdks
+DEPLOY.md

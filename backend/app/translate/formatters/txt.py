@@ -151,3 +151,62 @@ class TxtFormatter(BaseFormatter):
         source = Path(source_path)
         filename = f"{source.stem}_translated_{uuid.uuid4().hex[:8]}{source.suffix}"
         return str(settings.TRANSLATE_DIR / filename)
+
+    def extract_content(self, file_path: str, max_chars: int = 5000) -> dict:
+        """
+        提取 TXT 文件内容用于预览
+
+        Args:
+            file_path: 文件路径
+            max_chars: 最大提取字符数
+
+        Returns:
+            dict: 包含 content 列表、total_chars、truncated、format
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # 按段落分割
+            paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
+
+            # 构建内容列表
+            content_list = []
+            total_chars = 0
+            truncated = False
+
+            for idx, para in enumerate(paragraphs):
+                if total_chars + len(para) > max_chars:
+                    # 截断处理
+                    remaining = max_chars - total_chars
+                    if remaining > 0:
+                        content_list.append({
+                            'type': 'paragraph',
+                            'text': para[:remaining],
+                            'index': idx
+                        })
+                    truncated = True
+                    break
+
+                content_list.append({
+                    'type': 'paragraph',
+                    'text': para,
+                    'index': idx
+                })
+                total_chars += len(para)
+
+            return {
+                'content': content_list,
+                'total_chars': total_chars,
+                'truncated': truncated,
+                'format': 'txt',
+                'total_paragraphs': len(paragraphs)
+            }
+        except Exception as e:
+            return {
+                'content': [],
+                'total_chars': 0,
+                'truncated': False,
+                'format': 'txt',
+                'error': str(e)
+            }

@@ -82,7 +82,7 @@ class AITranslator:
 
         try:
             # 从数据库加载领域提示词
-            from ..models.prompt import Prompt
+            from ...models.prompt import Prompt
             
             prompt = self.db_session.query(Prompt).filter(
                 Prompt.category == self.domain,

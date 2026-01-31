@@ -176,3 +176,70 @@ class PowerPointFormatter(BaseFormatter):
         source = Path(source_path)
         filename = f"{source.stem}_translated_{uuid.uuid4().hex[:8]}{source.suffix}"
         return str(settings.TRANSLATE_DIR / filename)
+
+    def extract_content(self, file_path: str, max_chars: int = 5000) -> dict:
+        """
+        提取 PowerPoint 文件内容用于预览
+
+        Args:
+            file_path: 文件路径
+            max_chars: 最大提取字符数
+
+        Returns:
+            dict: 包含 content 列表、total_chars、truncated、format
+        """
+        try:
+            from pptx import Presentation
+
+            prs = Presentation(file_path)
+
+            content_list = []
+            total_chars = 0
+            truncated = False
+            text_count = 0
+
+            for slide_idx, slide in enumerate(prs.slides):
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        text_count += 1
+                        text = shape.text.strip()
+
+                        if total_chars + len(text) > max_chars:
+                            remaining = max_chars - total_chars
+                            if remaining > 0:
+                                content_list.append({
+                                    'type': 'text',
+                                    'text': text[:remaining],
+                                    'index': text_count,
+                                    'location': f"第{slide_idx+1}页"
+                                })
+                            truncated = True
+                            break
+
+                        content_list.append({
+                            'type': 'text',
+                            'text': text,
+                            'index': text_count,
+                            'location': f"第{slide_idx+1}页"
+                        })
+                        total_chars += len(text)
+
+                if truncated:
+                    break
+
+            return {
+                'content': content_list,
+                'total_chars': total_chars,
+                'truncated': truncated,
+                'format': 'pptx',
+                'total_slides': len(prs.slides),
+                'total_texts': text_count
+            }
+        except Exception as e:
+            return {
+                'content': [],
+                'total_chars': 0,
+                'truncated': False,
+                'format': 'pptx',
+                'error': str(e)
+            }

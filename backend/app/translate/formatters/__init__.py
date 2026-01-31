@@ -70,3 +70,21 @@ class BaseFormatter(ABC):
         """
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(content)
+
+    @abstractmethod
+    def extract_content(self, file_path: str, max_chars: int = 5000) -> dict:
+        """
+        提取文件内容用于预览
+
+        Args:
+            file_path: 文件路径
+            max_chars: 最大提取字符数（防止文件过大）
+
+        Returns:
+            dict: 包含以下字段：
+                - content: 文本内容列表，每项包含 {type, text, index} 
+                - total_chars: 总字符数
+                - truncated: 是否被截断
+                - format: 文件格式
+        """
+        pass

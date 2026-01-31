@@ -262,3 +262,79 @@ class MarkdownFormatter(BaseFormatter):
         source = Path(source_path)
         filename = f"{source.stem}_translated_{uuid.uuid4().hex[:8]}{source.suffix}"
         return str(settings.TRANSLATE_DIR / filename)
+
+    def extract_content(self, file_path: str, max_chars: int = 5000) -> dict:
+        """
+        提取 Markdown 文件内容用于预览
+
+        Args:
+            file_path: 文件路径
+            max_chars: 最大提取字符数
+
+        Returns:
+            dict: 包含 content 列表、total_chars、truncated、format
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # 解析 Markdown
+            paragraphs = self._parse_markdown(content)
+
+            # 构建内容列表
+            content_list = []
+            total_chars = 0
+            truncated = False
+
+            for idx, para in enumerate(paragraphs):
+                text = para['text'].strip()
+                if not text:
+                    continue
+
+                # 判断类型
+                if para.get('is_code'):
+                    item_type = 'code'
+                elif para['prefix'].startswith('#'):
+                    item_type = 'heading'
+                elif para['prefix'].strip() and para['prefix'].strip()[0] in '-*+':
+                    item_type = 'list'
+                elif re.match(r'^\d+\.', para['prefix'].strip()):
+                    item_type = 'list'
+                else:
+                    item_type = 'paragraph'
+
+                if total_chars + len(text) > max_chars:
+                    remaining = max_chars - total_chars
+                    if remaining > 0:
+                        content_list.append({
+                            'type': item_type,
+                            'text': text[:remaining],
+                            'index': idx,
+                            'prefix': para['prefix']
+                        })
+                    truncated = True
+                    break
+
+                content_list.append({
+                    'type': item_type,
+                    'text': text,
+                    'index': idx,
+                    'prefix': para['prefix']
+                })
+                total_chars += len(text)
+
+            return {
+                'content': content_list,
+                'total_chars': total_chars,
+                'truncated': truncated,
+                'format': 'markdown',
+                'total_paragraphs': len([p for p in paragraphs if p['text'].strip()])
+            }
+        except Exception as e:
+            return {
+                'content': [],
+                'total_chars': 0,
+                'truncated': False,
+                'format': 'markdown',
+                'error': str(e)
+            }

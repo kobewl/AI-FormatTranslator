@@ -89,3 +89,50 @@ class FileUploadResponse(BaseModel):
                 "file_type": "docx"
             }
         }
+
+
+class PreviewContentItem(BaseModel):
+    """预览内容项"""
+    type: str = Field(..., description="内容类型：paragraph/table/cell/text/heading/list/code")
+    text: str = Field(..., description="文本内容")
+    index: int | str = Field(..., description="索引或位置标识")
+    location: Optional[str] = Field(None, description="位置描述（如表格位置）")
+    prefix: Optional[str] = Field(None, description="前缀标记（如 Markdown 标题标记）")
+
+
+class PreviewResponse(BaseModel):
+    """文件预览响应"""
+    content: list[PreviewContentItem] = Field(..., description="内容列表")
+    total_chars: int = Field(..., description="总字符数")
+    truncated: bool = Field(..., description="是否被截断")
+    format: str = Field(..., description="文件格式")
+    total_paragraphs: Optional[int] = Field(None, description="总段落数（Word/TXT）")
+    total_tables: Optional[int] = Field(None, description="总表格数（Word）")
+    total_sheets: Optional[int] = Field(None, description="总工作表数（Excel）")
+    total_cells: Optional[int] = Field(None, description="总单元格数（Excel）")
+    total_slides: Optional[int] = Field(None, description="总幻灯片数（PPT）")
+    total_texts: Optional[int] = Field(None, description="总文本数（PPT）")
+    error: Optional[str] = Field(None, description="错误信息（如果有）")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "content": [
+                    {"type": "paragraph", "text": "这是一段示例文本", "index": 0}
+                ],
+                "total_chars": 1000,
+                "truncated": False,
+                "format": "docx"
+            }
+        }
+
+
+class ParallelPreviewResponse(BaseModel):
+    """对照预览响应（原文+译文）"""
+    source_content: list[PreviewContentItem] = Field(..., description="原文内容列表")
+    translated_content: list[PreviewContentItem] = Field(..., description="译文内容列表")
+    source_chars: int = Field(..., description="原文总字符数")
+    translated_chars: int = Field(..., description="译文总字符数")
+    truncated: bool = Field(..., description="是否被截断")
+    format: str = Field(..., description="文件格式")
+    error: Optional[str] = Field(None, description="错误信息（如果有）")

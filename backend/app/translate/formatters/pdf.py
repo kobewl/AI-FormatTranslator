@@ -40,28 +40,19 @@ class PDFFormatter(BaseFormatter):
 
         Args:
             pdf_path: PDF 文件路径
-            word_path: 输出 Word 文件路径
+            word_path: 输出的 Word 文件路径
 
         Returns:
             str: Word 文件路径
         """
         if not PDF2DOCX_AVAILABLE:
-            raise ImportError(
-                "PDF 转 Word 需要安装 pdf2docx: pip install pdf2docx"
-            )
-
-        print(f"📄 开始转换 PDF → Word...")
-        print(f"📥 输入: {pdf_path}")
-        print(f"📤 输出: {word_path}")
+            raise ImportError("PDF 转 Word 需要安装 pdf2docx")
 
         # 创建转换器
         cv = Converter(pdf_path)
-
         try:
             # 转换 PDF 到 Word
-            # multi_processing=True 启用多进程加速（默认已开启）
             cv.convert(word_path)
-            print(f"✅ 转换完成")
         finally:
             cv.close()
 
@@ -76,8 +67,6 @@ class PDFFormatter(BaseFormatter):
     ) -> str:
         """
         翻译 PDF 文档（同步包装器，调用异步方法）
-
-        流程：PDF → Word → 翻译 → 返回 Word 文件
 
         Args:
             source_path: 源 PDF 文件路径
@@ -250,3 +239,59 @@ class PDFFormatter(BaseFormatter):
                 shutil.rmtree(work_dir)
 
             raise
+
+    def extract_content(self, file_path: str, max_chars: int = 5000) -> dict:
+        """
+        提取 PDF 文件内容用于预览
+
+        PDF 文件需要先转换为 Word，然后提取内容
+
+        Args:
+            file_path: 文件路径
+            max_chars: 最大提取字符数
+
+        Returns:
+            dict: 包含 content 列表、total_chars、truncated、format
+        """
+        if not PDF2DOCX_AVAILABLE:
+            return {
+                'content': [],
+                'total_chars': 0,
+                'truncated': False,
+                'format': 'pdf',
+                'error': 'PDF 预览需要安装 pdf2docx 库'
+            }
+
+        # 创建临时工作目录
+        work_dir = settings.TRANSLATE_DIR / f"pdf_preview_{uuid.uuid4().hex[:8]}"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            # PDF → Word
+            pdf_source = Path(file_path)
+            word_temp_path = work_dir / f"{pdf_source.stem}.docx"
+
+            self._pdf_to_word(file_path, str(word_temp_path))
+
+            # 使用 WordFormatter 提取内容
+            word_formatter = WordFormatter()
+            result = word_formatter.extract_content(str(word_temp_path), max_chars)
+            result['format'] = 'pdf'
+
+            # 清理临时目录
+            shutil.rmtree(work_dir)
+
+            return result
+
+        except Exception as e:
+            # 清理临时目录
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+
+            return {
+                'content': [],
+                'total_chars': 0,
+                'truncated': False,
+                'format': 'pdf',
+                'error': str(e)
+            }

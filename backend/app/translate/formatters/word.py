@@ -537,3 +537,96 @@ class WordFormatter(BaseFormatter):
         # 使用源文件的文件名 + 语言代码
         filename = f"{source.stem}_{target_lang}{source.suffix}"
         return str(settings.TRANSLATE_DIR / filename)
+
+    def extract_content(self, file_path: str, max_chars: int = 5000) -> dict:
+        """
+        提取 Word 文档内容用于预览
+
+        Args:
+            file_path: 文件路径
+            max_chars: 最大提取字符数
+
+        Returns:
+            dict: 包含 content 列表、total_chars、truncated、format
+        """
+        try:
+            doc = Document(file_path)
+
+            content_list = []
+            total_chars = 0
+            truncated = False
+
+            # 提取段落
+            for idx, paragraph in enumerate(doc.paragraphs):
+                text = paragraph.text.strip()
+                if not text:
+                    continue
+
+                if total_chars + len(text) > max_chars:
+                    remaining = max_chars - total_chars
+                    if remaining > 0:
+                        content_list.append({
+                            'type': 'paragraph',
+                            'text': text[:remaining],
+                            'index': idx
+                        })
+                    truncated = True
+                    break
+
+                content_list.append({
+                    'type': 'paragraph',
+                    'text': text,
+                    'index': idx
+                })
+                total_chars += len(text)
+
+            # 提取表格内容
+            if not truncated:
+                for table_idx, table in enumerate(doc.tables):
+                    for row_idx, row in enumerate(table.rows):
+                        for cell_idx, cell in enumerate(row.cells):
+                            text = cell.text.strip()
+                            if not text:
+                                continue
+
+                            if total_chars + len(text) > max_chars:
+                                remaining = max_chars - total_chars
+                                if remaining > 0:
+                                    content_list.append({
+                                        'type': 'table',
+                                        'text': text[:remaining],
+                                        'index': f"{table_idx}-{row_idx}-{cell_idx}",
+                                        'location': f"表{table_idx+1} 行{row_idx+1} 列{cell_idx+1}"
+                                    })
+                                truncated = True
+                                break
+
+                            content_list.append({
+                                'type': 'table',
+                                'text': text,
+                                'index': f"{table_idx}-{row_idx}-{cell_idx}",
+                                'location': f"表{table_idx+1} 行{row_idx+1} 列{cell_idx+1}"
+                            })
+                            total_chars += len(text)
+
+                        if truncated:
+                            break
+                    if truncated:
+                        break
+
+            return {
+                'content': content_list,
+                'total_chars': total_chars,
+                'truncated': truncated,
+                'format': 'docx',
+                'total_paragraphs': len(doc.paragraphs),
+                'total_tables': len(doc.tables)
+            }
+        except Exception as e:
+            return {
+                'content': [],
+                'total_chars': 0,
+                'truncated': False,
+                'format': 'docx',
+                'error': str(e)
+            }

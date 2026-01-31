@@ -12,7 +12,7 @@ from sqlalchemy import desc
 from ...database import get_db
 from ...models.customer import Customer
 from ...models.translate import Translate
-from ...schemas.translate import TranslateRequest, TranslateResponse
+from ...schemas.translate import TranslateRequest, TranslateResponse, PreviewResponse, ParallelPreviewResponse
 from ...schemas.common import ResponseModel, PaginationParams, PaginatedResponse
 from ...core.deps import get_current_customer
 from ...translate.engine import TranslateEngine
@@ -494,3 +494,260 @@ async def get_finish_count(
         message="获取成功",
         data={"count": count}
     )
+
+
+@router.post("/retry", response_model=ResponseModel[TranslateResponse])
+async def retry_translate(
+    task_id: int,
+    request_data: TranslateRequest,
+    current_user: Customer = Depends(get_current_customer),
+    db: Session = Depends(get_db)
+):
+    """
+    重试翻译任务
+
+    基于已完成的翻译任务创建新的翻译任务，使用相同的文件但允许修改翻译参数
+    
+    - **task_id**: 原翻译任务ID（必须已完成）
+    - **source_lang**: 源语言（auto表示自动检测）
+    - **target_lang**: 目标语言
+    - **model_name**: AI模型名称
+    - **thread_count**: 翻译线程数（1-10）
+    - **prompt_id**: 提示词ID（可选）
+    - **domain**: 翻译领域（general/medical/it/legal/finance等）
+    - **options**: 额外配置选项（可选）
+    """
+    import shutil
+    import uuid
+    from ...config import settings
+
+    # 查询原翻译记录
+    original_translate = db.query(Translate).filter(
+        Translate.id == task_id,
+        Translate.customer_id == current_user.id
+    ).first()
+
+    if not original_translate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="原翻译任务不存在"
+        )
+
+    # 检查原任务是否已完成
+    if original_translate.status not in ["completed", "failed"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"原任务状态为 {original_translate.status}，只有已完成或失败的任务可以重试"
+        )
+
+    # 检查原文件是否存在
+    if not original_translate.file_path or not os.path.exists(original_translate.file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="原文件不存在，无法重试"
+        )
+
+    try:
+        # 复制文件到新的路径（避免影响原任务）
+        file_ext = original_translate.file_type
+        new_filename = f"{uuid.uuid4()}.{file_ext}"
+        new_file_path = settings.UPLOAD_DIR / new_filename
+        
+        shutil.copy2(original_translate.file_path, new_file_path)
+
+        # 创建新的翻译记录
+        new_translate = Translate(
+            customer_id=current_user.id,
+            file_name=original_translate.file_name,
+            file_path=str(new_file_path),
+            file_size=original_translate.file_size,
+            file_type=original_translate.file_type,
+            source_lang=request_data.source_lang,
+            target_lang=request_data.target_lang,
+            model_name=request_data.model_name,
+            thread_count=request_data.thread_count,
+            prompt_id=request_data.prompt_id,
+            display_mode=request_data.display_mode,
+            domain=request_data.domain,
+            options=request_data.options,
+            status="pending",
+            progress=0,
+            total_segments=0,
+            translated_segments=0
+        )
+
+        db.add(new_translate)
+        db.commit()
+        db.refresh(new_translate)
+
+        # 更新用户存储空间
+        current_user.update_used_space(original_translate.file_size)
+        db.commit()
+
+        return ResponseModel(
+            success=True,
+            message="重试任务创建成功",
+            data=new_translate.to_dict()
+        )
+    except Exception as e:
+        db.rollback()
+        # 清理已复制的文件（如果存在）
+        if 'new_file_path' in locals() and os.path.exists(new_file_path):
+            try:
+                os.remove(new_file_path)
+            except:
+                pass
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"创建重试任务失败: {str(e)}"
+        )
+
+
+@router.get("/{task_id}/preview", response_model=ResponseModel[PreviewResponse])
+async def get_translate_preview(
+    task_id: int,
+    max_chars: int = Query(5000, ge=100, le=20000, description="最大提取字符数"),
+    current_user: Customer = Depends(get_current_customer),
+    db: Session = Depends(get_db)
+):
+    """
+    获取翻译任务的源文件预览
+
+    提取源文件内容用于预览，支持 docx/pdf/xlsx/pptx/md/txt 格式
+
+    - **task_id**: 任务ID
+    - **max_chars**: 最大提取字符数（默认5000，范围100-20000）
+    """
+    translate = db.query(Translate).filter(
+        Translate.id == task_id,
+        Translate.customer_id == current_user.id
+    ).first()
+
+    if not translate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="翻译任务不存在"
+        )
+
+    # 检查源文件是否存在
+    if not translate.file_path or not os.path.exists(translate.file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="源文件不存在"
+        )
+
+    try:
+        # 根据文件类型选择对应的 Formatter
+        file_type = translate.file_type.lower()
+        from ...translate.engine import TranslateEngine
+
+        if file_type not in TranslateEngine.FORMATTERS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"不支持的文件类型: {file_type}"
+            )
+
+        # 获取 Formatter 实例
+        formatter_class = TranslateEngine.FORMATTERS[file_type]
+        formatter = formatter_class()
+
+        # 提取内容
+        preview_data = formatter.extract_content(translate.file_path, max_chars)
+
+        return ResponseModel(
+            success=True,
+            message="预览内容获取成功",
+            data=preview_data
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"预览内容提取失败: {str(e)}"
+        )
+
+
+@router.get("/{task_id}/preview-parallel", response_model=ResponseModel[ParallelPreviewResponse])
+async def get_translate_parallel_preview(
+    task_id: int,
+    max_chars: int = Query(5000, ge=100, le=20000, description="最大提取字符数"),
+    current_user: Customer = Depends(get_current_customer),
+    db: Session = Depends(get_db)
+):
+    """
+    获取翻译任务的对照预览（原文+译文）
+
+    同时提取源文件和翻译结果文件的内容，用于对照查看
+
+    - **task_id**: 任务ID
+    - **max_chars**: 最大提取字符数（默认5000，范围100-20000）
+    """
+    translate = db.query(Translate).filter(
+        Translate.id == task_id,
+        Translate.customer_id == current_user.id
+    ).first()
+
+    if not translate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="翻译任务不存在"
+        )
+
+    # 检查源文件是否存在
+    if not translate.file_path or not os.path.exists(translate.file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="源文件不存在"
+        )
+
+    # 检查翻译结果文件是否存在
+    if not translate.result_file_path or not os.path.exists(translate.result_file_path):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="翻译结果文件不存在，请先完成翻译"
+        )
+
+    try:
+        # 根据文件类型选择对应的 Formatter
+        file_type = translate.file_type.lower()
+        from ...translate.engine import TranslateEngine
+
+        if file_type not in TranslateEngine.FORMATTERS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"不支持的文件类型: {file_type}"
+            )
+
+        # 获取 Formatter 实例
+        formatter_class = TranslateEngine.FORMATTERS[file_type]
+        formatter = formatter_class()
+
+        # 提取源文件内容
+        source_preview = formatter.extract_content(translate.file_path, max_chars)
+
+        # 提取译文文件内容
+        # PDF 翻译后转为 Word，所以译文的格式可能不同
+        result_type = 'docx' if file_type == 'pdf' else file_type
+        if result_type in TranslateEngine.FORMATTERS:
+            result_formatter_class = TranslateEngine.FORMATTERS[result_type]
+            result_formatter = result_formatter_class()
+            translated_preview = result_formatter.extract_content(translate.result_file_path, max_chars)
+        else:
+            translated_preview = {'content': [], 'total_chars': 0, 'truncated': False}
+
+        return ResponseModel(
+            success=True,
+            message="对照预览内容获取成功",
+            data={
+                'source_content': source_preview.get('content', []),
+                'translated_content': translated_preview.get('content', []),
+                'source_chars': source_preview.get('total_chars', 0),
+                'translated_chars': translated_preview.get('total_chars', 0),
+                'truncated': source_preview.get('truncated', False) or translated_preview.get('truncated', False),
+                'format': file_type
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"对照预览内容提取失败: {str(e)}"
+        )
