@@ -98,6 +98,10 @@ class TranslateEngine:
         # 传递线程数配置给翻译器
         self.ai_translator.thread_count = self.task.thread_count
 
+        # 传递显示模式配置（数字映射）
+        # 1=替换模式, 2=对照模式, 3=表格对照, 4=双语对照...
+        self.ai_translator.display_mode = getattr(self.task, 'display_mode', 1)
+
     def execute(self):
         """
         执行翻译任务（同步方式）

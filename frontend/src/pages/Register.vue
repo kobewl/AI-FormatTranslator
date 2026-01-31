@@ -3,7 +3,7 @@
     <div class="register-box">
       <div class="register-header">
         <h1>注册账号</h1>
-        <p>加入 DocTranslator，开始智能翻译之旅</p>
+        <p>加入 AI-FormatTranslator，开始智能翻译之旅</p>
       </div>
 
       <a-form

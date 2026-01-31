@@ -68,7 +68,7 @@ class WordFormatter(BaseFormatter):
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> str:
         """
-        同步翻译 Word 文档（原有逻辑）
+        同步翻译 Word 文档（支持对照模式）
 
         Args:
             source_path: 源文件路径
@@ -79,40 +79,59 @@ class WordFormatter(BaseFormatter):
         Returns:
             str: 翻译结果文件路径
         """
+        # 获取显示模式配置（数字映射）
+        # 1=替换模式, 2=对照模式, 3=表格对照, 4=双语对照...
+        display_mode = getattr(ai_translator, 'display_mode', 1)
+
         # 加载文档
         doc = Document(source_path)
 
-        # 第一步：读取所有需要翻译的文本（run 级别）
-        texts = []
+        # 第一步：读取所有需要翻译的文本（段落级别，不是 run 级别）
+        paragraphs_data = []
 
-        # 读取段落中的 runs
-        for paragraph in doc.paragraphs:
-            self._read_runs(paragraph.runs, texts)
-
-        # 读取超链接中的 runs
-        for paragraph in doc.paragraphs:
-            for hyperlink in paragraph.hyperlinks:
-                self._read_runs(hyperlink.runs, texts)
+        # 读取段落
+        for para_idx, paragraph in enumerate(doc.paragraphs):
+            text = paragraph.text.strip()
+            if text:
+                paragraphs_data.append({
+                    'type': 'paragraph',
+                    'index': para_idx,
+                    'text': text,
+                    'translated': None,
+                    'element': paragraph
+                })
 
         # 读取表格中的文本
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        self._read_runs(paragraph.runs, texts)
+        for table_idx, table in enumerate(doc.tables):
+            for row_idx, row in enumerate(table.rows):
+                for cell_idx, cell in enumerate(row.cells):
+                    for para_idx, paragraph in enumerate(cell.paragraphs):
+                        text = paragraph.text.strip()
+                        if text:
+                            paragraphs_data.append({
+                                'type': 'table',
+                                'table_idx': table_idx,
+                                'row_idx': row_idx,
+                                'cell_idx': cell_idx,
+                                'para_idx': para_idx,
+                                'text': text,
+                                'translated': None,
+                                'element': paragraph
+                            })
 
         # 总文本数
-        total_count = len(texts)
+        total_count = len(paragraphs_data)
         if total_count == 0:
             return self._generate_result_path(source_path, target_lang)
 
-        print(f"📊 文档包含 {total_count} 个文本段落，开始翻译...")
+        print(f"📊 文档包含 {total_count} 个段落，开始翻译...")
+        print(f"🎨 显示模式: {display_mode}")
 
         # 第二步：批量翻译
-        batch_size = 10  # 每批翻译的文本数
+        batch_size = 10
 
         for i in range(0, total_count, batch_size):
-            batch = texts[i:i + batch_size]
+            batch = paragraphs_data[i:i + batch_size]
             batch_texts = [item['text'] for item in batch]
 
             # 调用 AI 翻译
@@ -121,42 +140,37 @@ class WordFormatter(BaseFormatter):
                 target_lang=target_lang
             )
 
-            # 将翻译结果写回 texts 数组
+            # 将翻译结果写回
             for j, item in enumerate(batch):
                 if j < len(translated_batch):
                     item['translated'] = translated_batch[j]
                 else:
                     item['translated'] = item['text']
 
-            # 更新进度（每批完成后）
+            # 更新进度
             if progress_callback:
                 current_completed = min(i + batch_size, total_count)
                 progress_callback(current_completed, total_count)
                 print(f"📊 批次 {i // batch_size + 1} 完成，进度: {int(current_completed / total_count * 100)}%")
 
-        # 第三步：将翻译结果写回原文档
-        index = 0
+        # 第三步：根据显示模式处理文档
+        if display_mode == 2:
+            # 2=对照模式：原文保留，添加译文在下
+            self._write_parallel_mode(paragraphs_data, target_lang)
+        elif display_mode == 3:
+            # 3=表格对照模式（预留）
+            self._write_parallel_mode(paragraphs_data, target_lang)
+        elif display_mode == 4:
+            # 4=双语对照模式（预留）
+            self._write_replace_mode(paragraphs_data)
+        else:
+            # 1=替换模式：直接替换原文
+            self._write_replace_mode(paragraphs_data)
 
-        # 写回段落的 runs
-        for paragraph in doc.paragraphs:
-            index = self._write_runs(paragraph.runs, texts, index)
-
-        # 写回超链接的 runs
-        for paragraph in doc.paragraphs:
-            for hyperlink in paragraph.hyperlinks:
-                index = self._write_runs(hyperlink.runs, texts, index)
-
-        # 写回表格的文本
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        index = self._write_runs(paragraph.runs, texts, index)
-
-        # 设置中文字体，确保中文能正确显示
+        # 设置中文字体
         self._set_chinese_font(doc, target_lang)
 
-        # 保存结果（覆盖原文档）
+        # 保存结果
         result_path = self._generate_result_path(source_path, target_lang)
         doc.save(result_path)
 
@@ -171,7 +185,7 @@ class WordFormatter(BaseFormatter):
         progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> str:
         """
-        异步翻译 Word 文档（支持并发）
+        异步翻译 Word 文档（支持并发和对照模式）
 
         Args:
             source_path: 源文件路径
@@ -183,53 +197,69 @@ class WordFormatter(BaseFormatter):
         Returns:
             str: 翻译结果文件路径
         """
+        # 获取显示模式配置（数字映射）
+        # 1=替换模式, 2=对照模式, 3=表格对照, 4=双语对照...
+        display_mode = getattr(ai_translator, 'display_mode', 1)
+
         # 加载文档
         doc = Document(source_path)
 
-        # 第一步：读取所有需要翻译的文本（run 级别）
-        texts = []
+        # 第一步：读取所有需要翻译的文本（段落级别）
+        paragraphs_data = []
 
-        # 读取段落中的 runs
-        for paragraph in doc.paragraphs:
-            self._read_runs(paragraph.runs, texts)
-
-        # 读取超链接中的 runs
-        for paragraph in doc.paragraphs:
-            for hyperlink in paragraph.hyperlinks:
-                self._read_runs(hyperlink.runs, texts)
+        # 读取段落
+        for para_idx, paragraph in enumerate(doc.paragraphs):
+            text = paragraph.text.strip()
+            if text:
+                paragraphs_data.append({
+                    'type': 'paragraph',
+                    'index': para_idx,
+                    'text': text,
+                    'translated': None,
+                    'element': paragraph
+                })
 
         # 读取表格中的文本
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        self._read_runs(paragraph.runs, texts)
+        for table_idx, table in enumerate(doc.tables):
+            for row_idx, row in enumerate(table.rows):
+                for cell_idx, cell in enumerate(row.cells):
+                    for para_idx, paragraph in enumerate(cell.paragraphs):
+                        text = paragraph.text.strip()
+                        if text:
+                            paragraphs_data.append({
+                                'type': 'table',
+                                'table_idx': table_idx,
+                                'row_idx': row_idx,
+                                'cell_idx': cell_idx,
+                                'para_idx': para_idx,
+                                'text': text,
+                                'translated': None,
+                                'element': paragraph
+                            })
 
         # 总文本数
-        total_count = len(texts)
+        total_count = len(paragraphs_data)
         if total_count == 0:
             return self._generate_result_path(source_path, target_lang)
 
-        print(f"📊 文档包含 {total_count} 个文本段落，开始异步翻译（{thread_count} 线程）...")
+        print(f"📊 文档包含 {total_count} 个段落，开始异步翻译（{thread_count} 线程）...")
+        print(f"🎨 显示模式: {display_mode}")
 
         # 第二步：异步批量翻译（并发模式）
-        batch_size = 20  # 并发模式下可以增大批次
+        batch_size = 20
 
         # 检查翻译器是否支持并发方法
         if hasattr(ai_translator, 'translate_batch_async_concurrent'):
             # 使用并发翻译
             for i in range(0, total_count, batch_size):
-                batch = texts[i:i + batch_size]
+                batch = paragraphs_data[i:i + batch_size]
                 batch_texts = [item['text'] for item in batch]
 
-                # 创建一个包装的进度回调，将批次内的索引转换为全局索引
                 def batch_progress_callback(batch_current: int, batch_total: int):
                     if progress_callback:
-                        # 计算全局进度：当前批次起始位置 + 批次内进度
                         global_current = i + batch_current
                         progress_callback(global_current, total_count)
 
-                # 调用异步并发翻译
                 translated_batch = await ai_translator.translate_batch_async_concurrent(
                     texts=batch_texts,
                     target_lang=target_lang,
@@ -237,7 +267,6 @@ class WordFormatter(BaseFormatter):
                     progress_callback=batch_progress_callback
                 )
 
-                # 将翻译结果写回 texts 数组
                 for j, item in enumerate(batch):
                     if j < len(translated_batch):
                         item['translated'] = translated_batch[j]
@@ -246,53 +275,159 @@ class WordFormatter(BaseFormatter):
         else:
             # 降级到普通异步翻译
             for i in range(0, total_count, batch_size):
-                batch = texts[i:i + batch_size]
+                batch = paragraphs_data[i:i + batch_size]
                 batch_texts = [item['text'] for item in batch]
 
-                # 调用异步翻译
                 translated_batch = await ai_translator.translate_batch_async(
                     texts=batch_texts,
                     target_lang=target_lang
                 )
 
-                # 将翻译结果写回 texts 数组
                 for j, item in enumerate(batch):
                     if j < len(translated_batch):
                         item['translated'] = translated_batch[j]
                     else:
                         item['translated'] = item['text']
 
-                # 更新进度
                 if progress_callback:
                     progress_callback(min(i + batch_size, total_count), total_count)
 
-        # 第三步：将翻译结果写回原文档
-        index = 0
+        # 第三步：根据显示模式处理文档
+        if display_mode == 2:
+            # 2=对照模式
+            self._write_parallel_mode(paragraphs_data, target_lang)
+        elif display_mode == 3:
+            # 3=表格对照模式（预留）
+            self._write_parallel_mode(paragraphs_data, target_lang)
+        elif display_mode == 4:
+            # 4=双语对照模式（预留）
+            self._write_replace_mode(paragraphs_data)
+        else:
+            # 1=替换模式
+            self._write_replace_mode(paragraphs_data)
 
-        # 写回段落的 runs
-        for paragraph in doc.paragraphs:
-            index = self._write_runs(paragraph.runs, texts, index)
-
-        # 写回超链接的 runs
-        for paragraph in doc.paragraphs:
-            for hyperlink in paragraph.hyperlinks:
-                index = self._write_runs(hyperlink.runs, texts, index)
-
-        # 写回表格的文本
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        index = self._write_runs(paragraph.runs, texts, index)
-
-        # 设置中文字体，确保中文能正确显示
+        # 设置中文字体
         self._set_chinese_font(doc, target_lang)
 
-        # 保存结果（覆盖原文档）
+        # 保存结果
         result_path = self._generate_result_path(source_path, target_lang)
         doc.save(result_path)
 
         return result_path
+
+    def _write_replace_mode(self, paragraphs_data):
+        """
+        替换模式：直接替换原文
+
+        Args:
+            paragraphs_data: 段落数据列表
+        """
+        for item in paragraphs_data:
+            paragraph = item['element']
+            translated_text = item['translated']
+
+            if translated_text and paragraph.runs:
+                # 清空段落内容
+                for run in paragraph.runs:
+                    run.text = ""
+                # 在第一个 run 中写入翻译文本
+                paragraph.runs[0].text = translated_text
+
+    def _write_parallel_mode(self, paragraphs_data, target_lang):
+        """
+        对照模式：保留原文，添加译文在下
+        译文使用虚线下划线样式
+
+        Args:
+            paragraphs_data: 段落数据列表
+            target_lang: 目标语言
+        """
+        import copy
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        # 需要按照段落/表格单元格分组处理
+        processed_paragraphs = set()
+
+        for item in paragraphs_data:
+            paragraph = item['element']
+
+            # 避免重复处理同一个段落
+            if id(paragraph) in processed_paragraphs:
+                continue
+            processed_paragraphs.add(id(paragraph))
+
+            original_text = item['text']
+            translated_text = item['translated']
+
+            if not translated_text:
+                continue
+
+            # 获取父元素（文档主体或表格单元格）
+            parent = paragraph._element.getparent()
+
+            # 创建新的段落元素（使用 deepcopy 复制）
+            new_para_element = copy.deepcopy(paragraph._element)
+
+            # 在原文段落后插入新段落
+            parent.insert(
+                parent.index(paragraph._element) + 1,
+                new_para_element
+            )
+
+            # 创建新的段落对象
+            from docx.text.paragraph import Paragraph
+            new_paragraph = Paragraph(new_para_element, paragraph._parent)
+
+            # 设置译文内容
+            if new_paragraph.runs:
+                # 清空新段落
+                for run in new_paragraph.runs:
+                    run.text = ""
+                # 在第一个 run 中写入翻译文本
+                new_paragraph.runs[0].text = translated_text
+
+                # 设置译文样式：虚线下划线
+                self._set_translation_style(new_paragraph.runs[0], target_lang)
+
+    def _set_translation_style(self, run, target_lang):
+        """
+        设置译文样式：虚线下划线、蓝色
+
+        Args:
+            run: docx run 对象
+            target_lang: 目标语言
+        """
+        from docx.enum.text import WD_UNDERLINE
+
+        # 设置下划线样式（虚线）
+        run.font.underline = WD_UNDERLINE.DASH
+
+        # 设置字体颜色（蓝色）
+        from docx.shared import RGBColor
+        run.font.color.rgb = RGBColor(0x1E, 0x90, 0xFF)  # 道奇蓝
+
+        # 设置字体大小略小
+        from docx.shared import Pt
+        run.font.size = Pt(10.5)  # 五号字稍小
+
+        # 设置中文字体
+        try:
+            if run._element.rPr is not None:
+                from docx.oxml.ns import qn
+                rfonts = run._element.rPr.find(qn('w:rFonts'))
+                if rfonts is None:
+                    rfonts = run._element.rPr.makeelement(qn('w:rFonts'))
+                    run._element.rPr.append(rfonts)
+
+                if target_lang == 'zh':
+                    rfonts.set(qn('w:eastAsia'), '微软雅黑')
+                    rfonts.set(qn('w:ascii'), '微软雅黑')
+                    rfonts.set(qn('w:hAnsi'), '微软雅黑')
+                else:
+                    rfonts.set(qn('w:eastAsia'), 'Arial')
+        except Exception:
+            pass
 
     def _read_runs(self, runs, texts):
         """

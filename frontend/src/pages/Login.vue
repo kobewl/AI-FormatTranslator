@@ -1,7 +1,7 @@
 <template>
   <div class="login-container">
     <div class="login-box">
-      <h1>DocTranslator 登录</h1>
+      <h1>AI-FormatTranslator 登录</h1>
       <a-form
         :model="formState"
         name="login"

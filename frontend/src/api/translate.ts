@@ -25,6 +25,7 @@ export interface TranslateRequest {
   model_name: string
   thread_count?: number
   prompt_id?: number
+  display_mode?: number  // 1=替换模式, 2=对照模式, 3=表格对照...
 }
 
 /**

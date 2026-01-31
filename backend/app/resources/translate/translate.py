@@ -64,6 +64,7 @@ async def start_translate(
     translate.model_name = request_data.model_name
     translate.thread_count = request_data.thread_count
     translate.prompt_id = request_data.prompt_id
+    translate.display_mode = request_data.display_mode
     translate.options = request_data.options
 
     try:

@@ -6,7 +6,7 @@
         <div class="logo">
           <router-link to="/">
             <FileTextOutlined style="font-size: 24px;" />
-            <span class="logo-text">DocTranslator</span>
+            <span class="logo-text">AI-FormatTranslator</span>
           </router-link>
         </div>
 
@@ -78,7 +78,7 @@
     <!-- 页脚 -->
     <a-layout-footer class="layout-footer">
       <div class="footer-content">
-        <p>DocTranslator © 2024 - 基于 AI 的智能文档翻译系统</p>
+        <p>AI-FormatTranslator © 2024 - 基于 AI 的智能文档翻译系统</p>
       </div>
     </a-layout-footer>
   </a-layout>
