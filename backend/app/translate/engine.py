@@ -92,7 +92,8 @@ class TranslateEngine:
             api_key=settings.OPENAI_API_KEY,
             api_base=settings.OPENAI_API_BASE,
             model=self.task.model_name,
-            timeout=settings.OPENAI_TIMEOUT
+            timeout=settings.OPENAI_TIMEOUT,
+            db_session=self.db  # 传递数据库会话用于加载领域提示词
         )
 
         # 传递线程数配置给翻译器
@@ -101,6 +102,9 @@ class TranslateEngine:
         # 传递显示模式配置（数字映射）
         # 1=替换模式, 2=对照模式, 3=表格对照, 4=双语对照...
         self.ai_translator.display_mode = getattr(self.task, 'display_mode', 1)
+
+        # 传递领域配置
+        self.ai_translator.domain = getattr(self.task, 'domain', 'general')
 
     def execute(self):
         """

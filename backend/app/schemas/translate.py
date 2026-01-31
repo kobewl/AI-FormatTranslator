@@ -16,6 +16,7 @@ class TranslateRequest(BaseModel):
     thread_count: int = Field(5, ge=1, le=10, description="翻译线程数")
     prompt_id: Optional[int] = Field(None, description="提示词ID")
     display_mode: int = Field(1, description="译文显示模式：1=替换模式, 2=对照模式, 3=表格对照...")
+    domain: str = Field("general", description="翻译领域（general/medical/it/legal/finance等）")
     options: Optional[dict] = Field(None, description="额外配置选项")
 
     class Config:
@@ -45,6 +46,7 @@ class TranslateResponse(BaseModel):
     model_name: str
     thread_count: int
     display_mode: int = 1
+    domain: str = "general"
     result_file_path: Optional[str] = None
     total_segments: int
     translated_segments: int

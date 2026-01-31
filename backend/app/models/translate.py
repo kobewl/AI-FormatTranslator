@@ -37,6 +37,7 @@ class Translate(Base):
     model_name = Column(String(50), default="gpt-3.5-turbo", comment="使用的AI模型")
     thread_count = Column(Integer, default=5, comment="翻译线程数")
     display_mode = Column(Integer, default=1, comment="译文显示模式：1=替换模式,2=对照模式,3=表格对照,4=双语对照...")
+    domain = Column(String(50), default="general", comment="翻译领域（general/medical/it/legal等）")
 
     # 翻译结果
     result_file_path = Column(String(500), nullable=True, comment="翻译结果文件路径")
@@ -122,6 +123,7 @@ class Translate(Base):
             "model_name": self.model_name,
             "thread_count": self.thread_count,
             "display_mode": self.display_mode,
+            "domain": self.domain,
             "result_file_path": self.result_file_path,
             "total_segments": self.total_segments,
             "translated_segments": self.translated_segments,

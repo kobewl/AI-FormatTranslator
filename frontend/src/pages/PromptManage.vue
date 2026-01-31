@@ -192,7 +192,7 @@ import {
 } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
-import axios from 'axios'
+import { http } from '@/api'
 
 // 数据
 const prompts = ref<any[]>([])
@@ -234,18 +234,40 @@ const columns = [
 const fetchPrompts = async () => {
   loading.value = true
   try {
-    const res = await axios.get('/api/prompt/list', {
+    const res = await http.get('/prompt/list', {
       params: {
         page: page.value,
         page_size: pageSize.value,
         category: categoryFilter.value || undefined
       }
     })
-
-    prompts.value = res.data.data.items
-    total.value = res.data.data.total
-  } catch (error) {
-    message.error('获取提示词列表失败')
+    
+    // 调试：打印完整响应
+    console.log('后端响应:', res.data)
+    
+    // 兼容两种后端返回格式：
+    // 格式1: { success: true, data: { items: [...], total: 4 } }
+    // 格式2: { items: [...], total: 4, page: 1, ... }
+    if (res.data?.success && res.data?.data) {
+      // 格式1：有包装层
+      prompts.value = res.data.data.items || []
+      total.value = res.data.data.total || 0
+    } else if (Array.isArray(res.data?.items)) {
+      // 格式2：直接返回分页数据
+      prompts.value = res.data.items
+      total.value = res.data.total || 0
+    } else {
+      // 数据格式错误
+      prompts.value = []
+      total.value = 0
+      message.warning('暂无提示词数据')
+    }
+  } catch (error: any) {
+    console.error('获取提示词列表失败:', error)
+    console.error('错误响应:', error.response?.data)
+    message.error(error.response?.data?.message || '获取提示词列表失败')
+    prompts.value = []
+    total.value = 0
   } finally {
     loading.value = false
   }
@@ -307,17 +329,18 @@ const handleSubmit = async () => {
   submitting.value = true
   try {
     if (isEdit.value) {
-      await axios.put(`/api/prompt/${currentPrompt.value.id}`, formData.value)
+      await http.put(`/prompt/${currentPrompt.value.id}`, formData.value)
       message.success('更新成功')
     } else {
-      await axios.post('/api/prompt/create', formData.value)
+      await http.post('/prompt/create', formData.value)
       message.success('创建成功')
     }
 
     modalVisible.value = false
     fetchPrompts()
-  } catch (error) {
-    message.error(isEdit.value ? '更新失败' : '创建失败')
+  } catch (error: any) {
+    console.error(isEdit.value ? '更新失败:' : '创建失败:', error)
+    message.error(error.response?.data?.message || (isEdit.value ? '更新失败' : '创建失败'))
   } finally {
     submitting.value = false
   }
@@ -332,11 +355,12 @@ const handleView = (record: any) => {
 // 删除
 const handleDelete = async (record: any) => {
   try {
-    await axios.delete(`/api/prompt/${record.id}`)
+    await http.delete(`/prompt/${record.id}`)
     message.success('删除成功')
     fetchPrompts()
-  } catch (error) {
-    message.error('删除失败')
+  } catch (error: any) {
+    console.error('删除失败:', error)
+    message.error(error.response?.data?.message || '删除失败')
   }
 }
 

@@ -65,6 +65,7 @@ async def start_translate(
     translate.thread_count = request_data.thread_count
     translate.prompt_id = request_data.prompt_id
     translate.display_mode = request_data.display_mode
+    translate.domain = request_data.domain
     translate.options = request_data.options
 
     try:

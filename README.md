@@ -1,86 +1,184 @@
-# 📄 DocTranslator - AI 文档翻译系统
+# 🚀 AI-FormatTranslator - 智能文档翻译系统
+
+> **项目已升级！** 从 DocTranslator 全面升级为 AI-FormatTranslator，新增专业领域翻译和双模式显示功能。
 
 ## 项目愿景
 
-DocTranslator 是一个基于 AI 的智能文档翻译系统，支持多种文档格式的高质量翻译，完美保持原文档的格式和排版。
+AI-FormatTranslator 是一个基于 AI 的智能文档翻译系统，支持多种文档格式的高质量翻译，完美保持原文档的格式和排版。采用 FastAPI + Vue 3 全栈架构，集成 DeepSeek 等大语言模型，提供企业级翻译解决方案。
 
 ## 核心功能
 
-### 已实现功能
-- [x] 用户认证与权限管理
-- [x] 多格式文档翻译（Word、PDF、Excel、PPT、Markdown、TXT）
-- [x] 文件上传与下载
-- [x] 翻译任务管理与进度跟踪
-- [x] 术语对照表管理
-- [x] 翻译提示词管理
-- [x] 系统配置管理
+### 已实现功能 ✅
 
-### 规划功能
-- [ ] 批量翻译优化
-- [ ] 翻译记忆功能
-- [ ] OCR 图片识别翻译
-- [ ] 实时协作编辑
+#### 核心翻译功能
+- [x] **多格式文档翻译** - 支持 Word、PDF、Excel、PPT、Markdown、TXT
+- [x] **双模式显示** - 替换模式 vs 对照模式（原文+译文并排显示）
+- [x] **8大专业领域** - 通用、医疗、IT、法律、金融、工程、学术、商务
+- [x] **格式完美保持** - 翻译后保留原文档的排版、样式和结构
+
+#### 用户与权限
+- [x] **JWT 认证** - 安全的用户登录与权限管理
+- [x] **用户注册/登录** - 完整的用户生命周期管理
+
+#### 管理与配置
+- [x] **术语对照表管理** - 自定义专业术语翻译规则
+- [x] **提示词管理** - 灵活配置 AI 翻译提示词（含领域专用提示词）
+- [x] **翻译历史** - 完整的翻译任务记录与进度跟踪
+- [x] **系统配置** - 全局参数管理
+
+### 规划功能 🚧
+- [ ] **批量翻译** - 多文件同时处理
+- [ ] **翻译记忆库** - 智能学习用户偏好，提升翻译一致性
+- [ ] **OCR 识别** - 图片/PDF 文字提取与翻译
+- [ ] **实时协作** - 多人在线编辑与审校
+- [ ] **API 开放平台** - 对外提供翻译服务接口
 
 ## 技术栈
 
-### 后端（FastAPI）
-- **框架**: FastAPI + Uvicorn
-- **数据库**: MySQL + SQLAlchemy 2.0
+### 后端（FastAPI + Python）
+- **框架**: FastAPI 0.115+ + Uvicorn
+- **数据库**: MySQL 8.0 + SQLAlchemy 2.0（异步支持）
 - **数据验证**: Pydantic v2
-- **认证**: JWT (python-jose)
-- **AI 翻译**: OpenAI 兼容 API
-- **文档处理**: python-docx, openpyxl, python-pptx
+- **认证**: JWT (python-jose) + 密码哈希 (bcrypt)
+- **AI 引擎**: DeepSeek / OpenAI 兼容 API
+- **文档处理**: 
+  - Word: `python-docx` + 自定义样式保持引擎
+  - Excel: `openpyxl`
+  - PPT: `python-pptx`
+- **其他**: `aiohttp`（异步 HTTP）、`pandas`（数据处理）
 
-### 前端
-- **框架**: Vue 3 + Vite
-- **状态管理**: Pinia
-- **路由**: Vue Router
-- **UI 组件**: Ant Design Vue
-- **构建工具**: Vite
+### 前端（Vue 3 + TypeScript）
+- **框架**: Vue 3.4+ + Composition API (`<script setup>`)
+- **构建工具**: Vite 5+
+- **语言**: TypeScript 5+
+- **状态管理**: Pinia（模块化 store）
+- **路由**: Vue Router 4（动态路由 + 路由守卫）
+- **UI 组件**: Ant Design Vue 4
+- **HTTP 客户端**: Axios（封装统一错误处理）
+- **图标**: @ant-design/icons-vue
 
 ## 项目结构
 
 ```
 doc-translator/
-├── backend/                    # 后端代码
-│   ├── app/                   # 应用代码（纯 Python）
-│   │   ├── __init__.py       # FastAPI 主应用
+├── backend/                    # 后端代码（FastAPI）
+│   ├── app/                   # 应用核心代码
+│   │   ├── __init__.py       # FastAPI 主应用与路由注册
 │   │   ├── config.py         # 配置管理（Pydantic Settings）
-│   │   ├── database.py       # 数据库连接与会话
+│   │   ├── database.py       # 数据库连接与会话管理
 │   │   ├── core/             # 核心模块
-│   │   │   ├── security.py   # JWT/密码加密
-│   │   │   └── deps.py       # 依赖注入
-│   │   ├── models/           # SQLAlchemy 模型
-│   │   ├── schemas/          # Pydantic 模式
-│   │   ├── resources/        # API 路由（按功能分类）
-│   │   ├── translate/        # 翻译引擎
+│   │   │   ├── security.py   # JWT 认证与密码加密
+│   │   │   └── deps.py       # 依赖注入（DB 会话、当前用户）
+│   │   ├── models/           # SQLAlchemy 2.0 数据模型
+│   │   │   ├── customer.py   # 用户模型
+│   │   │   ├── translate.py  # 翻译任务模型
+│   │   │   ├── prompt.py     # 提示词模型（含领域配置）
+│   │   │   └── ...
+│   │   ├── schemas/          # Pydantic v2 数据验证
+│   │   │   ├── auth.py       # 认证相关 schema
+│   │   │   ├── translate.py  # 翻译相关 schema
+│   │   │   └── ...
+│   │   ├── resources/        # API 路由（RESTful 设计）
+│   │   │   ├── auth/         # 认证接口
+│   │   │   ├── translate/    # 翻译接口
+│   │   │   ├── admin/        # 管理接口
+│   │   │   └── ...
+│   │   ├── translate/        # 翻译引擎（核心）
+│   │   │   ├── engine.py     # 翻译引擎主控制器
+│   │   │   ├── ai/           # AI 服务层
+│   │   │   │   └── openai.py # DeepSeek/OpenAI 翻译器
+│   │   │   ├── formatters/   # 文档格式处理器
+│   │   │   │   ├── word.py   # Word 文档翻译器（双模式支持）
+│   │   │   │   ├── excel.py  # Excel 处理器
+│   │   │   │   └── ppt.py    # PPT 处理器
+│   │   │   └── parsers/      # 文档解析器
 │   │   └── utils/            # 工具函数
-│   ├── db/                   # 数据库相关
+│   ├── db/                   # 数据库脚本
 │   │   ├── init.sql          # 数据库初始化脚本
-│   │   ├── migrations/       # 数据库迁移文件
+│   │   ├── migrate_add_domain_feature.sql  # 领域功能迁移
+│   │   ├── seed_domain_prompts.sql         # 领域提示词种子数据
+│   │   ├── fix_prompt_foreign_key.sql      # 外键修复脚本
+│   │   ├── migrations/       # Alembic 迁移文件
 │   │   └── seeds/            # 种子数据
-│   ├── storage/              # 文件存储目录
-│   │   ├── uploads/          # 上传文件
-│   │   └── translate/        # 翻译结果
-│   ├── logs/                 # 日志文件目录
-│   ├── requirements.txt      # Python 依赖
+│   ├── storage/              # 文件存储
+│   │   ├── uploads/          # 上传的原始文件
+│   │   └── translate/        # 翻译完成的文件
+│   ├── logs/                 # 日志目录
+│   ├── requirements.txt      # Python 依赖清单
 │   ├── .env.example          # 环境变量示例
-│   ├── .gitignore            # Git 忽略规则
-│   └── run.py               # 启动入口
-├── frontend/                 # 前端代码
+│   └── run.py               # 应用启动入口
+├── frontend/                 # 前端代码（Vue 3）
 │   ├── src/
-│   │   ├── main.ts          # 应用入口
+│   │   ├── main.ts          # 应用入口（挂载、初始化）
 │   │   ├── App.vue          # 根组件
 │   │   ├── pages/           # 页面组件
-│   │   ├── components/      # 通用组件
-│   │   ├── api/             # API 封装
-│   │   ├── store/           # Pinia 状态
-│   │   ├── router/          # 路由配置
+│   │   │   ├── Login.vue    # 登录页
+│   │   │   ├── Translate.vue # 翻译主页（步骤式UI）
+│   │   │   ├── History.vue  # 翻译历史
+│   │   │   ├── PromptManage.vue # 提示词管理
+│   │   │   └── ...
+│   │   ├── components/      # 可复用组件
+│   │   ├── api/             # API 封装（axios 实例）
+│   │   ├── store/           # Pinia 状态管理
+│   │   ├── router/          # Vue Router 配置
+│   │   ├── types/           # TypeScript 类型定义
 │   │   └── utils/           # 工具函数
 │   ├── package.json
 │   └── vite.config.ts
+├── .gitignore
+├── LICENSE
 └── README.md
 ```
+
+## 核心特性详解
+
+### 🎯 专业领域翻译（Domain-Specific Translation）
+
+系统内置 **8 个专业领域**的专用翻译策略，针对不同行业的术语和表达习惯进行优化：
+
+| 领域 | 标识 | 适用场景 |
+|------|------|----------|
+| **通用** | `general` | 日常文档、普通文本 |
+| **医疗医学** | `medical` | 病历、医学论文、药品说明 |
+| **计算机 IT** | `it` | 技术文档、API 文档、代码注释 |
+| **法律法务** | `legal` | 合同、法律条款、诉讼文书 |
+| **金融财经** | `finance` | 财报、审计报告、金融分析 |
+| **工程技术** | `engineering` | 工程规范、技术手册、CAD 文档 |
+| **学术科研** | `academic` | 论文、研究报告、学术期刊 |
+| **商务商业** | `business` | 商业计划书、营销材料、商务邮件 |
+
+**实现原理**：
+- 领域提示词存储于 `prompts` 表，通过 `category` 字段标识领域
+- 翻译时自动加载对应领域的系统提示词，与基础提示词拼接后发送给 AI
+- 缓存机制避免重复查询数据库，提升性能
+
+### 📖 双模式显示（Dual Display Modes）
+
+翻译结果支持两种显示方式，适应不同使用场景：
+
+#### 1️⃣ 替换模式（Replace Mode）
+- **模式值**: `1`
+- **效果**: 原文被译文完全替换
+- **适用**: 正式文档交付、直接使用
+
+#### 2️⃣ 对照模式（Parallel Mode）
+- **模式值**: `2`
+- **效果**: 原文在上，译文在下，译文带有蓝色虚线下划线
+- **适用**: 学习对照、审校修改、语言学习
+
+**技术实现**：
+- Word 文档使用 `copy.deepcopy` 复制段落，避免元素引用问题
+- 原文保持原有样式，译文添加蓝色虚线下划线样式（RGB: 0, 112, 192）
+- 段落顺序：原文段 → 译文段 → 下一原文段 → 下一译文段...
+
+### 🎨 现代化前端界面
+
+- **步骤式交互**: 上传 → 配置 → 翻译 → 下载
+- **可视化领域选择**: 8 个卡片式领域选项，带图标和描述
+- **实时进度**: WebSocket 推送翻译进度，精确到段落级别
+- **响应式设计**: 支持桌面和移动端浏览
+
+---
 
 ## 快速开始
 

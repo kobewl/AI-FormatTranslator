@@ -1,6 +1,6 @@
 """
 AI 翻译服务
-使用 OpenAI 兼容 API 进行翻译
+使用 OpenAI 兼容 API 进行翻译，支持领域特定的专业提示词
 """
 import asyncio
 import time
@@ -14,6 +14,7 @@ class AITranslator:
 
     使用 OpenAI 兼容的 API 进行文本翻译
     支持单文本翻译和批量翻译
+    支持领域特定的专业提示词（医疗、IT、法律、金融等）
     """
 
     def __init__(
@@ -21,7 +22,8 @@ class AITranslator:
         api_key: str,
         api_base: str = "https://api.openai.com/v1",
         model: str = "gpt-3.5-turbo",
-        timeout: int = 60
+        timeout: int = 60,
+        db_session = None  # 数据库会话，用于加载领域提示词
     ):
         """
         初始化 AI 翻译器
@@ -31,11 +33,13 @@ class AITranslator:
             api_base: API 基础 URL
             model: 使用的模型
             timeout: 超时时间（秒）
+            db_session: 数据库会话，用于加载领域提示词
         """
         self.api_key = api_key
         self.api_base = api_base
         self.model = model
         self.timeout = timeout
+        self.db_session = db_session
 
         # 创建同步和异步客户端
         self.client = OpenAI(
@@ -48,6 +52,60 @@ class AITranslator:
             base_url=api_base,
             timeout=timeout
         )
+
+        # 配置属性（从引擎传递）
+        self.thread_count = 5
+        self.display_mode = 1
+        self.domain = "general"  # 翻译领域
+
+        # 缓存领域提示词
+        self._domain_prompt_cache = None
+        self._cached_domain = None
+
+    def _get_domain_prompt(self) -> str:
+        """
+        获取领域特定的系统提示词
+
+        Returns:
+            str: 领域提示词内容
+        """
+        # 如果缓存命中，直接返回
+        if self._domain_prompt_cache and self._cached_domain == self.domain:
+            return self._domain_prompt_cache
+
+        # 默认基础提示词
+        base_prompt = "你是一个专业的翻译助手。请准确翻译用户提供的文本，保持原文的意思和语气。"
+
+        # 如果没有数据库会话，返回基础提示词
+        if not self.db_session:
+            return base_prompt
+
+        try:
+            # 从数据库加载领域提示词
+            from ..models.prompt import Prompt
+            
+            prompt = self.db_session.query(Prompt).filter(
+                Prompt.category == self.domain,
+                Prompt.is_active == True
+            ).first()
+
+            if prompt and prompt.content:
+                # 组合基础提示词 + 领域提示词
+                combined_prompt = f"{base_prompt}\n\n{prompt.content}"
+                
+                # 缓存结果
+                self._domain_prompt_cache = combined_prompt
+                self._cached_domain = self.domain
+                
+                print(f"✅ 加载领域提示词: {self.domain} - {prompt.name}")
+                return combined_prompt
+            else:
+                print(f"⚠️ 未找到领域提示词: {self.domain}，使用通用提示词")
+                return base_prompt
+
+        except Exception as e:
+            print(f"❌ 加载领域提示词失败: {e}")
+            return base_prompt
 
     def translate_text(
         self,
@@ -69,8 +127,11 @@ class AITranslator:
         if not text or not text.strip():
             return text
 
-        # 构建提示词
-        prompt = self._build_translation_prompt(text, target_lang, source_lang)
+        # 获取领域特定的系统提示词
+        system_prompt = self._get_domain_prompt()
+
+        # 构建用户提示词
+        user_prompt = self._build_translation_prompt(text, target_lang, source_lang)
 
         try:
             # 调用 API
@@ -79,11 +140,11 @@ class AITranslator:
                 messages=[
                     {
                         "role": "system",
-                        "content": "你是一个专业的翻译助手。请准确翻译用户提供的文本，保持原文的意思和语气。"
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
-                        "content": prompt
+                        "content": user_prompt
                     }
                 ],
                 temperature=0.3,  # 降低温度以获得更一致的翻译
@@ -213,8 +274,11 @@ class AITranslator:
         if not text or not text.strip():
             return text
 
-        # 构建提示词
-        prompt = self._build_translation_prompt(text, target_lang, source_lang)
+        # 获取领域特定的系统提示词
+        system_prompt = self._get_domain_prompt()
+
+        # 构建用户提示词
+        user_prompt = self._build_translation_prompt(text, target_lang, source_lang)
 
         try:
             # 调用 API
@@ -223,11 +287,11 @@ class AITranslator:
                 messages=[
                     {
                         "role": "system",
-                        "content": "你是一个专业的翻译助手。请准确翻译用户提供的文本，保持原文的意思和语气。"
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
-                        "content": prompt
+                        "content": user_prompt
                     }
                 ],
                 temperature=0.3,

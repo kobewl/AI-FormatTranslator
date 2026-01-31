@@ -32,7 +32,7 @@ class Prompt(Base):
     use_count = Column(Integer, default=0, comment="使用次数")
 
     # 创建者信息
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True, comment="创建者ID")
+    created_by = Column(Integer, ForeignKey("customers.id"), nullable=True, comment="创建者ID")
 
     # 时间戳
     created_at = Column(DateTime, default=datetime.now, comment="创建时间")

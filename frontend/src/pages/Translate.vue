@@ -163,6 +163,72 @@
               </a-row>
             </div>
 
+            <!-- 领域选择 -->
+            <div class="form-section">
+              <div class="section-title">
+                <GlobalOutlined />
+                翻译领域
+              </div>
+              <a-form-item label="选择专业领域">
+                <a-select v-model:value="config.domain" size="large">
+                  <a-select-option value="general">
+                    <span class="domain-option">
+                      <FileTextOutlined />
+                      通用领域 - 适用于大多数文档
+                    </span>
+                  </a-select-option>
+                  <a-select-option value="medical">
+                    <span class="domain-option">
+                      <MedicineBoxOutlined />
+                      医疗医学 - 病历、医学论文
+                    </span>
+                  </a-select-option>
+                  <a-select-option value="it">
+                    <span class="domain-option">
+                      <CodeOutlined />
+                      计算机IT - 技术文档、代码注释
+                    </span>
+                  </a-select-option>
+                  <a-select-option value="legal">
+                    <span class="domain-option">
+                      <FileProtectOutlined />
+                      法律法务 - 合同、法规文件
+                    </span>
+                  </a-select-option>
+                  <a-select-option value="finance">
+                    <span class="domain-option">
+                      <DollarOutlined />
+                      金融财经 - 财务报告、投资文档
+                    </span>
+                  </a-select-option>
+                  <a-select-option value="engineering">
+                    <span class="domain-option">
+                      <ToolOutlined />
+                      工程技术 - 工程图纸、规范手册
+                    </span>
+                  </a-select-option>
+                  <a-select-option value="academic">
+                    <span class="domain-option">
+                      <BookOutlined />
+                      学术科研 - 论文、研究报告
+                    </span>
+                  </a-select-option>
+                  <a-select-option value="business">
+                    <span class="domain-option">
+                      <ShopOutlined />
+                      商务商业 - 商业计划、市场分析
+                    </span>
+                  </a-select-option>
+                </a-select>
+                <div class="domain-hint" v-if="config.domain !== 'general'">
+                  <a-tag color="blue">
+                    <BulbOutlined />
+                    已启用{{ getDomainName(config.domain) }}专业术语翻译
+                  </a-tag>
+                </div>
+              </a-form-item>
+            </div>
+
             <!-- 显示模式选择 -->
             <div class="form-section">
               <div class="section-title">
@@ -525,7 +591,13 @@ import {
   ToolOutlined,
   QuestionCircleOutlined,
   SafetyOutlined,
-  InfoCircleOutlined
+  InfoCircleOutlined,
+  MedicineBoxOutlined,
+  CodeOutlined,
+  FileProtectOutlined,
+  DollarOutlined,
+  BookOutlined,
+  ShopOutlined
 } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadProps } from 'ant-design-vue'
@@ -544,7 +616,8 @@ const config = ref({
   target_lang: 'zh',
   model_name: 'deepseek-chat',
   thread_count: 5,
-  display_mode: 1  // 1=替换模式, 2=对照模式, 3=表格对照...
+  display_mode: 1,  // 1=替换模式, 2=对照模式, 3=表格对照...
+  domain: 'general'  // 翻译领域：general/medical/it/legal/finance...
 })
 
 const starting = ref(false)
@@ -748,7 +821,8 @@ const handleReset = () => {
     target_lang: 'zh',
     model_name: 'deepseek-chat',
     thread_count: 5,
-    display_mode: 1
+    display_mode: 1,
+    domain: 'general'
   }
   message.info('已重置，可以上传新文件')
 }
@@ -830,6 +904,21 @@ const getLangName = (code: string) => {
     de: '德语'
   }
   return names[code] || code
+}
+
+// 获取领域名称
+const getDomainName = (domain: string) => {
+  const names: Record<string, string> = {
+    general: '通用',
+    medical: '医疗医学',
+    it: '计算机IT',
+    legal: '法律法务',
+    finance: '金融财经',
+    engineering: '工程技术',
+    academic: '学术科研',
+    business: '商务商业'
+  }
+  return names[domain] || domain
 }
 
 onMounted(() => {
